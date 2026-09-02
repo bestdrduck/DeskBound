@@ -1,0 +1,17 @@
+# Build and diagnostic output
+outputs/
+work/
+*.log
+*.pdb
+
+# Local editor and OS files
+.vs/
+.vscode/
+*.user
+*.suo
+Thumbs.db
+Desktop.ini
+
+# Temporary visual-QA captures
+*-preview.png
+*-motion-preview.png
