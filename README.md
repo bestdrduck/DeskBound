@@ -6,7 +6,7 @@
 
 ## 下載
 
-一般使用者請到 [GitHub Releases](https://github.com/bestdrduck/DeskBound/releases/latest) 下載最新版 `桌伴.exe`。第一次啟動不會自動搬動任何桌面檔案。
+一般使用者請到 [GitHub Releases](https://github.com/bestdrduck/DeskBound/releases/latest) 下載最新版 `DeskBound.exe`。第一次啟動不會自動搬動任何桌面檔案。
 
 ## 0.12.0 功能
 

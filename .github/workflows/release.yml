@@ -17,7 +17,9 @@ jobs:
 
       - name: Build DeskBound
         shell: pwsh
-        run: .\build.ps1
+        run: |
+          .\build.ps1
+          Copy-Item -LiteralPath "outputs\桌伴.exe" -Destination "outputs\DeskBound.exe"
 
       - name: Create GitHub release
         shell: pwsh
@@ -25,6 +27,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: >-
           gh release create "${{ github.ref_name }}"
-          "outputs/桌伴.exe"
+          "outputs/DeskBound.exe"
           --title "桌伴 ${{ github.ref_name }}"
           --generate-notes
