@@ -46,7 +46,7 @@ DeskBound is a lightweight desktop organizer for Windows 10 and Windows 11. It g
 
 ## Install and update
 
-Download `DeskBound-Setup-x.y.z.exe` from [GitHub Releases](https://github.com/bestdrduck/DeskBound/releases/latest). The installer lets you choose where DeskBound is installed and remembers that location for future upgrades. First launch starts with an empty layout and never moves existing desktop items automatically.
+Download `DeskBound-Setup.exe` from [GitHub Releases](https://github.com/bestdrduck/DeskBound/releases/latest). The installer lets you choose where DeskBound is installed and remembers that location for future upgrades. First launch starts with an empty layout and never moves existing desktop items automatically.
 
 DeskBound is not code-signed yet, so Windows SmartScreen may show a warning on first install.
 

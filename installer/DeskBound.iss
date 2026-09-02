@@ -21,7 +21,7 @@ DisableDirPage=no
 UsePreviousAppDir=yes
 PrivilegesRequired=lowest
 OutputDir=..\outputs
-OutputBaseFilename=DeskBound-Setup-{#MyAppVersion}
+OutputBaseFilename=DeskBound-Setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -43,7 +43,6 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 Source: "..\outputs\桌伴.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\outputs\README.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

@@ -39,8 +39,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $version = "${{ github.ref_name }}".TrimStart('v')
           gh release create "${{ github.ref_name }}" `
-            "outputs/DeskBound-Setup-$version.exe" `
+            "outputs/DeskBound-Setup.exe" `
             --title "桌伴 ${{ github.ref_name }}" `
             --generate-notes
