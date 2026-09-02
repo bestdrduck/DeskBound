@@ -30,8 +30,8 @@ using MediaColors = System.Windows.Media.Colors;
 [assembly: AssemblyTitle("桌伴")]
 [assembly: AssemblyProduct("桌伴")]
 [assembly: AssemblyDescription("輕量、漂亮且支援動態桌布的 Windows 桌面圍欄")]
-[assembly: AssemblyVersion("0.13.0.0")]
-[assembly: AssemblyFileVersion("0.13.0.0")]
+[assembly: AssemblyVersion("0.14.0.0")]
+[assembly: AssemblyFileVersion("0.14.0.0")]
 
 namespace DeskBound
 {
@@ -388,7 +388,7 @@ namespace DeskBound
             }
             if (downloadingUpdate) return;
             UpdateRelease release = pendingUpdate;
-            if (AppDialog.Show("要安裝桌伴 " + release.Version.ToString(3) + " 嗎？\n\n程式會從官方 GitHub Release 下載、核對 SHA-256，然後重新啟動。圍欄設定與檔案不會被移動。",
+            if (AppDialog.Show("要安裝桌伴 " + release.Version.ToString(3) + " 嗎？\n\n程式會從官方 GitHub Release 下載正式安裝程式、核對檔案完整性，並沿用目前的安裝位置。圍欄設定與檔案不會被移動。",
                 "安裝更新", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
 
             downloadingUpdate = true;
@@ -410,12 +410,11 @@ namespace DeskBound
 
                     try
                     {
-                        string helper = task.Result;
-                        string target = Assembly.GetExecutingAssembly().Location;
-                        ProcessStartInfo start = new ProcessStartInfo(helper)
+                        string installer = task.Result;
+                        ProcessStartInfo start = new ProcessStartInfo(installer)
                         {
                             UseShellExecute = true,
-                            Arguments = "--apply-update " + Process.GetCurrentProcess().Id + " " + UpdateInstaller.Quote(helper) + " " + UpdateInstaller.Quote(target) + " " + UpdateInstaller.Quote(release.Version.ToString(3))
+                            Arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS"
                         };
                         Process.Start(start);
                         Exit();
@@ -5796,6 +5795,8 @@ namespace DeskBound
 
     internal sealed class AppSettingsModel
     {
+        public const int CurrentSchemaVersion = 1;
+        public int SchemaVersion { get; set; }
         public bool AutoOrganizeDesktop { get; set; }
         public bool DesktopInboxEnabled { get; set; }
         public bool AutoCheckUpdates { get; set; }
@@ -5806,6 +5807,7 @@ namespace DeskBound
 
         public AppSettingsModel()
         {
+            SchemaVersion = CurrentSchemaVersion;
             AutoCheckUpdates = true;
             MoveHistory = new List<MoveHistoryEntry>();
             OrganizerExtensions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -5831,15 +5833,31 @@ namespace DeskBound
             {
                 if (File.Exists(path))
                 {
-                    AppSettingsModel model = serializer.Deserialize<AppSettingsModel>(File.ReadAllText(path)) ?? new AppSettingsModel();
+                    string json = File.ReadAllText(path);
+                    int sourceSchema = 0;
+                    Dictionary<string, object> raw = serializer.DeserializeObject(json) as Dictionary<string, object>;
+                    object schemaValue;
+                    if (raw != null && raw.TryGetValue("SchemaVersion", out schemaValue) && schemaValue != null)
+                        int.TryParse(Convert.ToString(schemaValue), out sourceSchema);
+                    AppSettingsModel model = serializer.Deserialize<AppSettingsModel>(json) ?? new AppSettingsModel();
                     if (model.MoveHistory == null) model.MoveHistory = new List<MoveHistoryEntry>();
                     if (model.OrganizerExtensions == null) model.OrganizerExtensions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                     if (model.OrganizerKeywords == null) model.OrganizerKeywords = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    if (Migrate(model, sourceSchema)) Save(model);
                     return model;
                 }
             }
             catch { }
             return new AppSettingsModel();
+        }
+
+        internal static bool Migrate(AppSettingsModel model, int sourceSchema)
+        {
+            if (model == null || sourceSchema >= AppSettingsModel.CurrentSchemaVersion) return false;
+            // Schema 1 formalizes the existing defaults. Missing collections from older
+            // builds are normalized by Load before this migration is committed.
+            model.SchemaVersion = AppSettingsModel.CurrentSchemaVersion;
+            return true;
         }
 
         public void Save(AppSettingsModel model)
@@ -6336,17 +6354,20 @@ namespace DeskBound
                 Version parsedUpdateVersion;
                 Assert(UpdateService.TryParseVersion("v0.13.0", out parsedUpdateVersion) && parsedUpdateVersion == new Version(0, 13, 0),
                     "update version parsing");
-                string updateJson = "{\"tag_name\":\"v0.13.0\",\"html_url\":\"https://github.com/bestdrduck/DeskBound/releases/tag/v0.13.0\",\"assets\":[{\"name\":\"DeskBound.exe\",\"browser_download_url\":\"https://example.invalid/DeskBound.exe\",\"size\":376832,\"digest\":\"sha256:abc\"}]}";
+                string updateJson = "{\"tag_name\":\"v0.14.0\",\"html_url\":\"https://github.com/bestdrduck/DeskBound/releases/tag/v0.14.0\",\"assets\":[{\"name\":\"DeskBound-Setup-0.14.0.exe\",\"browser_download_url\":\"https://example.invalid/DeskBound-Setup-0.14.0.exe\",\"size\":376832,\"digest\":\"sha256:abc\"}]}";
                 UpdateRelease parsedRelease = UpdateService.ParseLatestRelease(updateJson);
-                Assert(parsedRelease.Version == new Version(0, 13, 0) && parsedRelease.DownloadUrl.EndsWith("DeskBound.exe") && parsedRelease.AssetSize == 376832,
+                Assert(parsedRelease.Version == new Version(0, 14, 0) && parsedRelease.DownloadUrl.EndsWith("DeskBound-Setup-0.14.0.exe") && parsedRelease.AssetSize == 376832,
                     "update release parsing");
+                AppSettingsModel migratedSettings = new AppSettingsModel { SchemaVersion = 0 };
+                Assert(AppSettingsStore.Migrate(migratedSettings, 0) && migratedSettings.SchemaVersion == AppSettingsModel.CurrentSchemaVersion,
+                    "settings schema migration");
 
                 Assert(AppearanceMath.OutlineTintAlpha(0.65) < AppearanceMath.OutlineTintAlpha(0.98) &&
                     AppearanceMath.OutlineBaseAlpha(0.65) < AppearanceMath.OutlineBaseAlpha(0.98), "outline opacity response");
                 Assert(AppearanceMath.SurfaceAlpha(0.20) == 51 && AppearanceMath.SurfaceAlpha(1.0) == 255 &&
                     AppearanceMath.OutlineBorderAlpha(0.20) < AppearanceMath.OutlineBorderAlpha(1.0), "opacity endpoints");
 
-                File.WriteAllText(report, "PASS\r\nmove-in: PASS\r\nsource-removal: PASS\r\nmove-out: PASS\r\nundo: PASS\r\nundo-persistence: PASS\r\ntab-persistence: PASS\r\nview-preference-persistence: PASS\r\ninbox-new-item-detection: PASS\r\ninbox-partial-download-guard: PASS\r\ninbox-file-folder-move: PASS\r\ninbox-undo: PASS\r\ninbox-history-rules-persistence: PASS\r\nautomatic-update-default: PASS\r\norganizer-defaults: PASS\r\noutline-opacity-response: PASS\r\nopacity-endpoints: PASS\r\ncollision-no-overwrite: PASS\r\ncross-volume-fallback: PASS\r\nlayout-backup-recovery: PASS\r\nstartup-command: PASS\r\nupdate-version-parsing: PASS\r\nupdate-release-parsing: PASS\r\ncontent-integrity: PASS\r\n");
+                File.WriteAllText(report, "PASS\r\nmove-in: PASS\r\nsource-removal: PASS\r\nmove-out: PASS\r\nundo: PASS\r\nundo-persistence: PASS\r\ntab-persistence: PASS\r\nview-preference-persistence: PASS\r\ninbox-new-item-detection: PASS\r\ninbox-partial-download-guard: PASS\r\ninbox-file-folder-move: PASS\r\ninbox-undo: PASS\r\ninbox-history-rules-persistence: PASS\r\nautomatic-update-default: PASS\r\nsettings-schema-migration: PASS\r\norganizer-defaults: PASS\r\noutline-opacity-response: PASS\r\nopacity-endpoints: PASS\r\ncollision-no-overwrite: PASS\r\ncross-volume-fallback: PASS\r\nlayout-backup-recovery: PASS\r\nstartup-command: PASS\r\nupdate-version-parsing: PASS\r\nupdate-release-parsing: PASS\r\ncontent-integrity: PASS\r\n");
                 return 0;
             }
             catch (Exception ex)
@@ -6423,13 +6444,13 @@ namespace DeskBound
                         Dictionary<string, object> asset = item as Dictionary<string, object>;
                         if (asset == null) continue;
                         string name = ReadString(asset, "name");
-                        if (string.Equals(name, "DeskBound.exe", StringComparison.OrdinalIgnoreCase)) { selected = asset; break; }
-                        if (selected == null && (string.Equals(name, "桌伴.exe", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "default.exe", StringComparison.OrdinalIgnoreCase)))
-                            selected = asset;
+                        if (!string.IsNullOrEmpty(name) && name.StartsWith("DeskBound-Setup-", StringComparison.OrdinalIgnoreCase) && name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                        { selected = asset; break; }
+                        if (string.Equals(name, "DeskBound-Setup.exe", StringComparison.OrdinalIgnoreCase)) selected = asset;
                     }
                 }
             }
-            if (selected == null) throw new InvalidDataException("最新 Release 中找不到 DeskBound.exe。");
+            if (selected == null) throw new InvalidDataException("最新 Release 中找不到 DeskBound 安裝程式。");
 
             long size = 0;
             object sizeValue;
@@ -6471,8 +6492,8 @@ namespace DeskBound
             string root = GetUpdateRoot();
             Directory.CreateDirectory(root);
             string safeVersion = release.Version == null ? "latest" : release.Version.ToString(3);
-            string partial = Path.Combine(root, "DeskBound-update-" + safeVersion + ".download");
-            string completed = Path.Combine(root, "DeskBound-update-" + safeVersion + ".exe");
+            string partial = Path.Combine(root, "DeskBound-Setup-" + safeVersion + ".download");
+            string completed = Path.Combine(root, "DeskBound-Setup-" + safeVersion + ".exe");
             try { if (File.Exists(partial)) File.Delete(partial); } catch { }
 
             ServicePointManager.SecurityProtocol |= (SecurityProtocolType)3072;

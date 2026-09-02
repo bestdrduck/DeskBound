@@ -4,32 +4,57 @@
 
 <h1 align="center">DeskBound</h1>
 
-<p align="center">Keep your desktop organized without changing the way you work.</p>
+<p align="center">A calm, practical home for everything on your Windows desktop.</p>
+
+<p align="center">
+  <a href="https://github.com/bestdrduck/DeskBound/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/bestdrduck/DeskBound?display_name=tag&style=flat-square&color=6967e8"></a>
+  <img alt="Windows 10 and 11" src="https://img.shields.io/badge/Windows-10%20%7C%2011-1777c7?style=flat-square">
+  <img alt="WPF" src="https://img.shields.io/badge/UI-WPF-5d60d6?style=flat-square">
+</p>
 
 <p align="center">
   <strong>English</strong> · <a href="README.zh-TW.md">繁體中文</a> ·
-  <a href="https://github.com/bestdrduck/DeskBound/releases/latest">Download</a>
+  <a href="https://github.com/bestdrduck/DeskBound/releases/latest"><strong>Download Setup</strong></a>
+</p>
+
+<p align="center">
+  <img src="assets/screenshots/control-center.png" width="920" alt="DeskBound control center">
 </p>
 
 DeskBound is a lightweight desktop organizer for Windows 10 and Windows 11. It groups files, folders, and shortcuts into movable, tabbed desktop panels while keeping every item as a real Windows file.
 
-## Download
+## Designed for a real desktop
 
-Download `DeskBound.exe` from [GitHub Releases](https://github.com/bestdrduck/DeskBound/releases/latest). First launch starts with an empty layout and never moves existing desktop items automatically.
+| Organize naturally | Stay in control | Make it yours |
+| --- | --- | --- |
+| Drag items into panels, use tabs, or let Desktop Inbox collect new arrivals. | Move items back out at any time. Removing a panel never deletes its files. | Adjust panel style, opacity, scale, layout, and behavior around your wallpaper. |
 
 ## Highlights
 
 - Movable, resizable, collapsible panels with multiple tabs
-- Drag items in and out, or collect new desktop items with Desktop Inbox
-- Folder navigation, search, sorting, thumbnails, and multi-selection
-- Smart organization, layout snapshots, scenes, and persistent undo
-- Custom visual styles and Wallpaper Engine support
-- Safe, SHA-256-verified updates starting with version 0.13.0
+- Drag items in and out, plus an optional Desktop Inbox
+- Search, sorting, thumbnails, multi-selection, smart organization, and undo
+- Layout snapshots, scenes, custom visual styles, and Wallpaper Engine support
+- Built-in installer-based updates with integrity checks
 - And more…
 
-## Data safety
+<p align="center">
+  <img src="assets/screenshots/desktop-inbox.png" width="360" alt="DeskBound Desktop Inbox">
+  &nbsp;&nbsp;
+  <img src="assets/screenshots/updates-and-help.png" width="560" alt="DeskBound help and updates">
+</p>
 
-Removing a panel or tab does not delete its files. Name collisions never overwrite existing items, layout data keeps a backup, and a failed application update restores the previous executable.
+## Install and update
+
+Download `DeskBound-Setup-x.y.z.exe` from [GitHub Releases](https://github.com/bestdrduck/DeskBound/releases/latest). The installer lets you choose where DeskBound is installed and remembers that location for future upgrades. First launch starts with an empty layout and never moves existing desktop items automatically.
+
+DeskBound is not code-signed yet, so Windows SmartScreen may show a warning on first install.
+
+From version 0.14.0 onward, DeskBound downloads the official Setup asset, verifies its integrity when GitHub provides a SHA-256 digest, and performs the upgrade through Setup. Users of the older portable 0.13 release need to run Setup once to switch to this update path.
+
+## Your data stays separate
+
+Settings, layout data, backups, and snapshots live outside the application folder. Updates and reinstalls therefore leave them in place. A versioned settings schema handles future format changes automatically; name collisions never overwrite existing files.
 
 ## Build
 
@@ -37,4 +62,4 @@ Removing a panel or tab does not delete its files. Name collisions never overwri
 .\build.ps1
 ```
 
-The local build is written to `outputs\桌伴.exe`.
+The local application build is written to `outputs\桌伴.exe`. GitHub Releases publish only the Setup installer.

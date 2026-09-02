@@ -1,11 +1,10 @@
 # GitHub Releases 發布準備
 
-目前專案已具備單檔程式與 Inno Setup 安裝腳本。安裝 Inno Setup 6 後，編譯 `installer\DeskBound.iss` 會在 `outputs` 產生 `桌伴-Setup-0.13.0.exe`。
+目前專案使用 Inno Setup 6 產生正式安裝檔。編譯 `installer\DeskBound.iss` 會在 `outputs` 產生 `DeskBound-Setup-版本.exe`。
 
 GitHub Releases 建議每次上傳：
 
-- `桌伴-Setup-版本.exe`：一般使用者安裝或更新
-- `DeskBound.exe`：GitHub Releases 的免安裝下載檔（本機建置輸出仍為 `桌伴.exe`）
+- `DeskBound-Setup-版本.exe`：唯一對外發布的安裝檔，可選安裝位置並沿用先前位置升級
 - 發行說明：列出新功能、修正與是否需要重新啟動
 
-程式內自動檢查更新需要確定 GitHub 儲存庫網址後才能安全綁定；在網址尚未確定前，不會放入無效或冒充的更新來源。
+主程式仍會在本機產生 `outputs\桌伴.exe` 供安裝腳本打包，但不另外上傳到 GitHub Releases。程式內更新會下載正式安裝檔；使用者設定與圍欄資料保存在安裝目錄之外，升級時不會被搬動或清除。
