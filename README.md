@@ -8,7 +8,11 @@
 
 一般使用者請到 [GitHub Releases](https://github.com/bestdrduck/DeskBound/releases/latest) 下載最新版 `DeskBound.exe`。第一次啟動不會自動搬動任何桌面檔案。
 
-## 0.12.0 功能
+## 0.13.0 功能
+
+- 啟動時會在背景檢查 GitHub Releases；最多每六小時檢查一次，可在「使用說明」關閉
+- 發現新版後可從通知、系統匣或控制中心一鍵下載、驗證 SHA-256、自動替換並重新啟動
+- 更新失敗時保留上一版程式，圍欄設定與實際檔案不會被更新程序移動
 
 - 桌伴應用程式 Logo，套用到程式、控制中心、系統匣與安裝檔
 - 控制中心新增「說明」分頁，集中介紹分頁、快速查看、快捷鍵、Wallpaper Engine 與資料安全

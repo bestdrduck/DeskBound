@@ -4,8 +4,10 @@ using System.Diagnostics;
 using Drawing = System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -28,8 +30,8 @@ using MediaColors = System.Windows.Media.Colors;
 [assembly: AssemblyTitle("桌伴")]
 [assembly: AssemblyProduct("桌伴")]
 [assembly: AssemblyDescription("輕量、漂亮且支援動態桌布的 Windows 桌面圍欄")]
-[assembly: AssemblyVersion("0.12.0.0")]
-[assembly: AssemblyFileVersion("0.12.0.0")]
+[assembly: AssemblyVersion("0.13.0.0")]
+[assembly: AssemblyFileVersion("0.13.0.0")]
 
 namespace DeskBound
 {
@@ -85,6 +87,12 @@ namespace DeskBound
         [STAThread]
         private static void Main(string[] args)
         {
+            if (args != null && args.Length > 0 && string.Equals(args[0], "--apply-update", StringComparison.OrdinalIgnoreCase))
+            {
+                Environment.ExitCode = UpdateInstaller.Apply(args);
+                return;
+            }
+
             if (args != null && args.Any(a => string.Equals(a, "--storage-self-test", StringComparison.OrdinalIgnoreCase)))
             {
                 Environment.ExitCode = ManagedStorage.RunSelfTest();
@@ -117,6 +125,18 @@ namespace DeskBound
                 bool enableDesktopInbox = args != null && args.Any(a => string.Equals(a, "--enable-desktop-inbox", StringComparison.OrdinalIgnoreCase));
                 DeskBoundManager manager = new DeskBoundManager(app, preview, diagnostics);
                 manager.Start();
+                string updateResult = UpdateInstaller.ConsumeResult();
+                if (!string.IsNullOrWhiteSpace(updateResult))
+                {
+                    app.Dispatcher.BeginInvoke(new Action(delegate
+                    {
+                        bool failed = updateResult.StartsWith("ERROR|", StringComparison.Ordinal);
+                        string detail = updateResult.Contains("|") ? updateResult.Substring(updateResult.IndexOf('|') + 1) : updateResult;
+                        AppDialog.Show(failed ? "更新沒有完成，桌伴已保留原本版本。\n\n" + detail : "桌伴已更新完成。\n\n目前版本：" + detail,
+                            failed ? "更新未完成" : "更新完成", MessageBoxButton.OK,
+                            failed ? MessageBoxImage.Warning : MessageBoxImage.Information);
+                    }));
+                }
                 if (openCenter) app.Dispatcher.BeginInvoke(new Action(manager.ShowControlCenter));
                 if (captureCenter) app.Dispatcher.BeginInvoke(new Action(manager.CaptureControlCenterAndExit));
                 if (captureAppearance) app.Dispatcher.BeginInvoke(new Action(delegate { manager.CaptureControlCenterPageAndExit("Appearance", "DeskBound-appearance-preview.png"); }));
@@ -152,6 +172,10 @@ namespace DeskBound
         private GlobalSearchWindow globalSearchWindow;
         private SceneSwitcherWindow sceneSwitcherWindow;
         private RuleEditorWindow ruleEditorWindow;
+        private UpdateRelease pendingUpdate;
+        private bool checkingForUpdates;
+        private bool downloadingUpdate;
+        private string updateStatus = "尚未檢查更新";
         private bool visible = true;
         private bool peeking;
         private bool visibleBeforePeek = true;
@@ -207,6 +231,12 @@ namespace DeskBound
             ResetDesktopInboxBaseline();
             ConfigureDesktopInboxWatcher();
             if (!PreviewMode && (settings.AutoOrganizeDesktop || settings.DesktopInboxEnabled)) organizerTimer.Start();
+            if (!PreviewMode)
+            {
+                UpdateService.CleanupStaleDownloads();
+                if (settings.AutoCheckUpdates && ShouldAutomaticallyCheckForUpdates())
+                    app.Dispatcher.BeginInvoke(new Action(delegate { CheckForUpdates(false); }));
+            }
             SaveSoon();
             if (models.Count == 0)
                 app.Dispatcher.BeginInvoke(new Action(ShowControlCenter));
@@ -233,6 +263,14 @@ namespace DeskBound
                 }));
             };
             tray.DoubleClick += delegate { ShowControlCenter(); };
+            tray.BalloonTipClicked += delegate
+            {
+                app.Dispatcher.BeginInvoke(new Action(delegate
+                {
+                    if (pendingUpdate != null) InstallPendingUpdate();
+                    else ShowControlCenter();
+                }));
+            };
         }
 
         private ContextMenu BuildTrayMenu()
@@ -259,8 +297,142 @@ namespace DeskBound
             autoStartTrayItem.IsChecked = StartupManager.IsEnabled();
             menu.Items.Add(autoStartTrayItem);
             menu.Items.Add(new Separator());
+            menu.Items.Add(TrayMenuItem("檢查更新…", delegate { CheckForUpdates(true); }));
             menu.Items.Add(TrayMenuItem("結束桌伴", delegate { Exit(); }));
             return menu;
+        }
+
+        private bool ShouldAutomaticallyCheckForUpdates()
+        {
+            if (!settings.LastUpdateCheckUtc.HasValue) return true;
+            return DateTime.UtcNow - settings.LastUpdateCheckUtc.Value > TimeSpan.FromHours(6);
+        }
+
+        public bool IsAutoCheckUpdatesEnabled()
+        {
+            return settings.AutoCheckUpdates;
+        }
+
+        public void SetAutoCheckUpdatesEnabled(bool enabled)
+        {
+            settings.AutoCheckUpdates = enabled;
+            settingsStore.Save(settings);
+            NotifyUpdateUi();
+            if (enabled && ShouldAutomaticallyCheckForUpdates()) CheckForUpdates(false);
+        }
+
+        public string GetUpdateStatus()
+        {
+            return updateStatus;
+        }
+
+        public string GetPendingUpdateVersion()
+        {
+            return pendingUpdate == null ? null : pendingUpdate.Version.ToString(3);
+        }
+
+        public void CheckForUpdates(bool interactive)
+        {
+            if (checkingForUpdates || downloadingUpdate)
+            {
+                if (interactive) AppDialog.Show("桌伴正在檢查或下載更新，請稍候。", "檢查更新");
+                return;
+            }
+
+            checkingForUpdates = true;
+            updateStatus = "正在檢查 GitHub 最新版本…";
+            NotifyUpdateUi();
+            Task.Factory.StartNew<UpdateRelease>(delegate { return UpdateService.GetLatestRelease(); }).ContinueWith(delegate(Task<UpdateRelease> task)
+            {
+                app.Dispatcher.BeginInvoke(new Action(delegate
+                {
+                    checkingForUpdates = false;
+                    settings.LastUpdateCheckUtc = DateTime.UtcNow;
+                    settingsStore.Save(settings);
+                    if (task.IsFaulted)
+                    {
+                        Exception error = task.Exception == null ? null : task.Exception.GetBaseException();
+                        updateStatus = "暫時無法連線到 GitHub";
+                        NotifyUpdateUi();
+                        if (interactive) AppDialog.Show(error == null ? "請稍後再試。" : error.Message, "無法檢查更新", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        return;
+                    }
+
+                    UpdateRelease latest = task.Result;
+                    Version current = Assembly.GetExecutingAssembly().GetName().Version;
+                    if (latest != null && latest.Version.CompareTo(current) > 0 && !string.IsNullOrWhiteSpace(latest.DownloadUrl))
+                    {
+                        pendingUpdate = latest;
+                        updateStatus = "有新版本 " + latest.Version.ToString(3) + " 可安裝";
+                        NotifyUpdateUi();
+                        if (interactive) InstallPendingUpdate();
+                        else tray.ShowBalloonTip(8000, "桌伴有新版本", "版本 " + latest.Version.ToString(3) + " 已推出，點一下即可更新。", Forms.ToolTipIcon.Info);
+                    }
+                    else
+                    {
+                        pendingUpdate = null;
+                        updateStatus = "已是最新版本 " + current.ToString(3);
+                        NotifyUpdateUi();
+                        if (interactive) AppDialog.Show("目前已是最新版本 " + current.ToString(3) + "。", "檢查更新");
+                    }
+                }));
+            });
+        }
+
+        public void InstallPendingUpdate()
+        {
+            if (pendingUpdate == null)
+            {
+                CheckForUpdates(true);
+                return;
+            }
+            if (downloadingUpdate) return;
+            UpdateRelease release = pendingUpdate;
+            if (AppDialog.Show("要安裝桌伴 " + release.Version.ToString(3) + " 嗎？\n\n程式會從官方 GitHub Release 下載、核對 SHA-256，然後重新啟動。圍欄設定與檔案不會被移動。",
+                "安裝更新", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+
+            downloadingUpdate = true;
+            updateStatus = "正在下載版本 " + release.Version.ToString(3) + "…";
+            NotifyUpdateUi();
+            Task.Factory.StartNew(delegate { return UpdateService.DownloadRelease(release); }).ContinueWith(delegate(Task<string> task)
+            {
+                app.Dispatcher.BeginInvoke(new Action(delegate
+                {
+                    downloadingUpdate = false;
+                    if (task.IsFaulted)
+                    {
+                        Exception error = task.Exception == null ? null : task.Exception.GetBaseException();
+                        updateStatus = "下載更新失敗";
+                        NotifyUpdateUi();
+                        AppDialog.Show(error == null ? "請稍後再試。" : error.Message, "無法下載更新", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        return;
+                    }
+
+                    try
+                    {
+                        string helper = task.Result;
+                        string target = Assembly.GetExecutingAssembly().Location;
+                        ProcessStartInfo start = new ProcessStartInfo(helper)
+                        {
+                            UseShellExecute = true,
+                            Arguments = "--apply-update " + Process.GetCurrentProcess().Id + " " + UpdateInstaller.Quote(helper) + " " + UpdateInstaller.Quote(target) + " " + UpdateInstaller.Quote(release.Version.ToString(3))
+                        };
+                        Process.Start(start);
+                        Exit();
+                    }
+                    catch (Exception ex)
+                    {
+                        updateStatus = "無法啟動更新程式";
+                        NotifyUpdateUi();
+                        AppDialog.Show(ex.Message, "無法安裝更新", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    }
+                }));
+            });
+        }
+
+        private void NotifyUpdateUi()
+        {
+            if (controlCenter != null) controlCenter.RefreshUpdateStatus();
         }
 
         private static MenuItem TrayMenuItem(string label, Action action)
@@ -1725,6 +1897,9 @@ namespace DeskBound
         private Button helpTabButton;
         private CheckBox autoOrganizeCheck;
         private CheckBox desktopInboxCheck;
+        private CheckBox autoUpdateCheck;
+        private TextBlock updateStatusText;
+        private Button updateActionButton;
         private TextBlock dashboardTitle;
         private TextBlock dashboardSubtitle;
         private string currentDashboardPage = "Manage";
@@ -2413,6 +2588,7 @@ namespace DeskBound
                 Foreground = new SolidColorBrush(MediaColor.FromArgb(165, 255, 255, 255)),
                 FontSize = 12.5, Margin = new Thickness(0, 0, 0, 16)
             });
+            body.Children.Add(BuildUpdateCard());
             body.Children.Add(HelpCard("開始使用",
                 "1. 在「圍欄管理」新增空白圍欄或資料夾圍欄。\n" +
                 "2. 把桌面檔案拖入空白圍欄，檔案會安全移到文件中的專用收納資料夾。\n" +
@@ -2442,6 +2618,77 @@ namespace DeskBound
                 FontSize = 11, Margin = new Thickness(2, 18, 0, 0)
             });
             return body;
+        }
+
+        private Border BuildUpdateCard()
+        {
+            MediaColor accent = AccentPalette.ReadWindowsAccent();
+            Border card = new Border
+            {
+                CornerRadius = new CornerRadius(14), Margin = new Thickness(0, 0, 0, 14),
+                Padding = new Thickness(17, 15, 15, 15),
+                Background = new LinearGradientBrush(MediaColor.FromRgb(24, 36, 49), MediaColor.FromRgb(21, 29, 41), 16),
+                BorderBrush = new SolidColorBrush(MediaColor.FromArgb(120, accent.R, accent.G, accent.B)),
+                BorderThickness = new Thickness(1)
+            };
+            Grid layout = new Grid();
+            layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            layout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            StackPanel copy = new StackPanel();
+            copy.Children.Add(new TextBlock
+            {
+                Text = "軟體更新", Foreground = Brushes.White, FontSize = 14.5,
+                FontWeight = FontWeights.SemiBold
+            });
+            updateStatusText = new TextBlock
+            {
+                Text = manager.GetUpdateStatus(), Foreground = new SolidColorBrush(MediaColor.FromRgb(153, 175, 193)),
+                FontSize = 11.5, Margin = new Thickness(0, 5, 0, 9)
+            };
+            copy.Children.Add(updateStatusText);
+            autoUpdateCheck = new CheckBox
+            {
+                Content = "啟動時自動檢查更新", IsChecked = manager.IsAutoCheckUpdatesEnabled(),
+                Foreground = new SolidColorBrush(MediaColor.FromRgb(197, 210, 221)), FontSize = 11.5,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            autoUpdateCheck.Checked += delegate { manager.SetAutoCheckUpdatesEnabled(true); };
+            autoUpdateCheck.Unchecked += delegate { manager.SetAutoCheckUpdatesEnabled(false); };
+            copy.Children.Add(autoUpdateCheck);
+            layout.Children.Add(copy);
+
+            updateActionButton = new Button
+            {
+                Content = "檢查更新", MinWidth = 112, Height = 40, Padding = new Thickness(16, 0, 16, 0),
+                VerticalAlignment = VerticalAlignment.Center, Foreground = Brushes.White,
+                Background = new SolidColorBrush(MediaColor.FromArgb(180, accent.R, accent.G, accent.B)),
+                BorderBrush = new SolidColorBrush(MediaColor.FromArgb(230, accent.R, accent.G, accent.B)),
+                BorderThickness = new Thickness(1), Style = UiStyles.GhostButton(10), Cursor = Cursors.Hand
+            };
+            updateActionButton.Click += delegate
+            {
+                if (manager.GetPendingUpdateVersion() == null) manager.CheckForUpdates(true);
+                else manager.InstallPendingUpdate();
+            };
+            AddButtonMotion(updateActionButton, 1.025);
+            layout.Children.Add(updateActionButton); Grid.SetColumn(updateActionButton, 1);
+            card.Child = layout;
+            AddCardMotion(card);
+            RefreshUpdateStatus();
+            return card;
+        }
+
+        public void RefreshUpdateStatus()
+        {
+            if (updateStatusText != null) updateStatusText.Text = manager.GetUpdateStatus();
+            if (autoUpdateCheck != null && autoUpdateCheck.IsChecked != manager.IsAutoCheckUpdatesEnabled())
+                autoUpdateCheck.IsChecked = manager.IsAutoCheckUpdatesEnabled();
+            if (updateActionButton != null)
+            {
+                string version = manager.GetPendingUpdateVersion();
+                updateActionButton.Content = string.IsNullOrEmpty(version) ? "檢查更新" : "安裝 " + version;
+            }
         }
 
         private Border HelpCard(string title, string description)
@@ -2942,6 +3189,7 @@ namespace DeskBound
             if (fenceList == null) return;
             if (autoOrganizeCheck != null) autoOrganizeCheck.IsChecked = manager.IsAutoOrganizeEnabled();
             if (desktopInboxCheck != null) desktopInboxCheck.IsChecked = manager.IsDesktopInboxEnabled();
+            RefreshUpdateStatus();
             IList<FenceWindow> fences = manager.GetFences();
             RefreshAppearance(fences);
             summaryText.Text = fences.Count + " 個圍欄";
@@ -5550,12 +5798,15 @@ namespace DeskBound
     {
         public bool AutoOrganizeDesktop { get; set; }
         public bool DesktopInboxEnabled { get; set; }
+        public bool AutoCheckUpdates { get; set; }
+        public DateTime? LastUpdateCheckUtc { get; set; }
         public List<MoveHistoryEntry> MoveHistory { get; set; }
         public Dictionary<string, string> OrganizerExtensions { get; set; }
         public Dictionary<string, string> OrganizerKeywords { get; set; }
 
         public AppSettingsModel()
         {
+            AutoCheckUpdates = true;
             MoveHistory = new List<MoveHistoryEntry>();
             OrganizerExtensions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             OrganizerKeywords = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -6068,6 +6319,8 @@ namespace DeskBound
                 Assert(restoredSettings.DesktopInboxEnabled && restoredSettings.MoveHistory.Count == 1 &&
                     restoredSettings.OrganizerExtensions["Images"].Contains(".png") && restoredSettings.OrganizerKeywords["Images"] == "截圖",
                     "inbox history and rules persistence");
+                AppSettingsModel legacySettings = serializer.Deserialize<AppSettingsModel>("{\"DesktopInboxEnabled\":false}");
+                Assert(legacySettings.AutoCheckUpdates, "automatic updates enabled for existing settings");
                 Assert(DesktopAutoOrganizer.DefaultExtensionText("Images").Contains(".png"), "organizer defaults");
 
                 string layoutRoot = Path.Combine(testRoot, "layout-store");
@@ -6080,12 +6333,20 @@ namespace DeskBound
                 Assert(StartupManager.BuildCommand(@"C:\Program Files\DeskBound\DeskBound.exe") ==
                     "\"C:\\Program Files\\DeskBound\\DeskBound.exe\"", "startup command quoting");
 
+                Version parsedUpdateVersion;
+                Assert(UpdateService.TryParseVersion("v0.13.0", out parsedUpdateVersion) && parsedUpdateVersion == new Version(0, 13, 0),
+                    "update version parsing");
+                string updateJson = "{\"tag_name\":\"v0.13.0\",\"html_url\":\"https://github.com/bestdrduck/DeskBound/releases/tag/v0.13.0\",\"assets\":[{\"name\":\"DeskBound.exe\",\"browser_download_url\":\"https://example.invalid/DeskBound.exe\",\"size\":376832,\"digest\":\"sha256:abc\"}]}";
+                UpdateRelease parsedRelease = UpdateService.ParseLatestRelease(updateJson);
+                Assert(parsedRelease.Version == new Version(0, 13, 0) && parsedRelease.DownloadUrl.EndsWith("DeskBound.exe") && parsedRelease.AssetSize == 376832,
+                    "update release parsing");
+
                 Assert(AppearanceMath.OutlineTintAlpha(0.65) < AppearanceMath.OutlineTintAlpha(0.98) &&
                     AppearanceMath.OutlineBaseAlpha(0.65) < AppearanceMath.OutlineBaseAlpha(0.98), "outline opacity response");
                 Assert(AppearanceMath.SurfaceAlpha(0.20) == 51 && AppearanceMath.SurfaceAlpha(1.0) == 255 &&
                     AppearanceMath.OutlineBorderAlpha(0.20) < AppearanceMath.OutlineBorderAlpha(1.0), "opacity endpoints");
 
-                File.WriteAllText(report, "PASS\r\nmove-in: PASS\r\nsource-removal: PASS\r\nmove-out: PASS\r\nundo: PASS\r\nundo-persistence: PASS\r\ntab-persistence: PASS\r\nview-preference-persistence: PASS\r\ninbox-new-item-detection: PASS\r\ninbox-partial-download-guard: PASS\r\ninbox-file-folder-move: PASS\r\ninbox-undo: PASS\r\ninbox-history-rules-persistence: PASS\r\norganizer-defaults: PASS\r\noutline-opacity-response: PASS\r\nopacity-endpoints: PASS\r\ncollision-no-overwrite: PASS\r\ncross-volume-fallback: PASS\r\nlayout-backup-recovery: PASS\r\nstartup-command: PASS\r\ncontent-integrity: PASS\r\n");
+                File.WriteAllText(report, "PASS\r\nmove-in: PASS\r\nsource-removal: PASS\r\nmove-out: PASS\r\nundo: PASS\r\nundo-persistence: PASS\r\ntab-persistence: PASS\r\nview-preference-persistence: PASS\r\ninbox-new-item-detection: PASS\r\ninbox-partial-download-guard: PASS\r\ninbox-file-folder-move: PASS\r\ninbox-undo: PASS\r\ninbox-history-rules-persistence: PASS\r\nautomatic-update-default: PASS\r\norganizer-defaults: PASS\r\noutline-opacity-response: PASS\r\nopacity-endpoints: PASS\r\ncollision-no-overwrite: PASS\r\ncross-volume-fallback: PASS\r\nlayout-backup-recovery: PASS\r\nstartup-command: PASS\r\nupdate-version-parsing: PASS\r\nupdate-release-parsing: PASS\r\ncontent-integrity: PASS\r\n");
                 return 0;
             }
             catch (Exception ex)
@@ -6108,6 +6369,260 @@ namespace DeskBound
         private static void Assert(bool condition, string name)
         {
             if (!condition) throw new InvalidOperationException("Self-test failed: " + name);
+        }
+    }
+
+    internal sealed class UpdateRelease
+    {
+        public Version Version { get; set; }
+        public string TagName { get; set; }
+        public string DownloadUrl { get; set; }
+        public string ReleaseUrl { get; set; }
+        public string Digest { get; set; }
+        public long AssetSize { get; set; }
+    }
+
+    internal static class UpdateService
+    {
+        private const string LatestReleaseApi = "https://api.github.com/repos/bestdrduck/DeskBound/releases/latest";
+
+        public static UpdateRelease GetLatestRelease()
+        {
+            ServicePointManager.SecurityProtocol |= (SecurityProtocolType)3072;
+            HttpWebRequest request = (HttpWebRequest)WebRequest.Create(LatestReleaseApi);
+            request.Method = "GET";
+            request.UserAgent = "DeskBound/" + Assembly.GetExecutingAssembly().GetName().Version.ToString(3);
+            request.Accept = "application/vnd.github+json";
+            request.Headers["X-GitHub-Api-Version"] = "2022-11-28";
+            request.Timeout = 15000;
+            request.ReadWriteTimeout = 15000;
+            using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
+            using (StreamReader reader = new StreamReader(response.GetResponseStream(), Encoding.UTF8))
+                return ParseLatestRelease(reader.ReadToEnd());
+        }
+
+        internal static UpdateRelease ParseLatestRelease(string json)
+        {
+            object parsed = new JavaScriptSerializer().DeserializeObject(json);
+            Dictionary<string, object> root = parsed as Dictionary<string, object>;
+            if (root == null) throw new InvalidDataException("GitHub 回傳了無法辨識的更新資料。");
+
+            string tag = ReadString(root, "tag_name");
+            Version version;
+            if (!TryParseVersion(tag, out version)) throw new InvalidDataException("GitHub Release 的版本號格式不正確。");
+
+            Dictionary<string, object> selected = null;
+            object assetsValue;
+            if (root.TryGetValue("assets", out assetsValue))
+            {
+                IEnumerable<object> assets = assetsValue as IEnumerable<object>;
+                if (assets != null)
+                {
+                    foreach (object item in assets)
+                    {
+                        Dictionary<string, object> asset = item as Dictionary<string, object>;
+                        if (asset == null) continue;
+                        string name = ReadString(asset, "name");
+                        if (string.Equals(name, "DeskBound.exe", StringComparison.OrdinalIgnoreCase)) { selected = asset; break; }
+                        if (selected == null && (string.Equals(name, "桌伴.exe", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "default.exe", StringComparison.OrdinalIgnoreCase)))
+                            selected = asset;
+                    }
+                }
+            }
+            if (selected == null) throw new InvalidDataException("最新 Release 中找不到 DeskBound.exe。");
+
+            long size = 0;
+            object sizeValue;
+            if (selected.TryGetValue("size", out sizeValue) && sizeValue != null) long.TryParse(Convert.ToString(sizeValue), out size);
+            return new UpdateRelease
+            {
+                Version = version,
+                TagName = tag,
+                DownloadUrl = ReadString(selected, "browser_download_url"),
+                ReleaseUrl = ReadString(root, "html_url"),
+                Digest = ReadString(selected, "digest"),
+                AssetSize = size
+            };
+        }
+
+        private static string ReadString(Dictionary<string, object> values, string key)
+        {
+            object value;
+            return values.TryGetValue(key, out value) && value != null ? Convert.ToString(value) : null;
+        }
+
+        internal static bool TryParseVersion(string tag, out Version version)
+        {
+            version = null;
+            if (string.IsNullOrWhiteSpace(tag)) return false;
+            string value = tag.Trim();
+            if (value.StartsWith("v", StringComparison.OrdinalIgnoreCase)) value = value.Substring(1);
+            int suffix = value.IndexOf('-');
+            if (suffix >= 0) value = value.Substring(0, suffix);
+            Version parsed;
+            if (!Version.TryParse(value, out parsed)) return false;
+            version = parsed;
+            return true;
+        }
+
+        public static string DownloadRelease(UpdateRelease release)
+        {
+            if (release == null || string.IsNullOrWhiteSpace(release.DownloadUrl)) throw new ArgumentException("沒有可下載的更新檔案。");
+            string root = GetUpdateRoot();
+            Directory.CreateDirectory(root);
+            string safeVersion = release.Version == null ? "latest" : release.Version.ToString(3);
+            string partial = Path.Combine(root, "DeskBound-update-" + safeVersion + ".download");
+            string completed = Path.Combine(root, "DeskBound-update-" + safeVersion + ".exe");
+            try { if (File.Exists(partial)) File.Delete(partial); } catch { }
+
+            ServicePointManager.SecurityProtocol |= (SecurityProtocolType)3072;
+            using (WebClient client = new WebClient())
+            {
+                client.Headers[HttpRequestHeader.UserAgent] = "DeskBound/" + Assembly.GetExecutingAssembly().GetName().Version.ToString(3);
+                client.Headers[HttpRequestHeader.Accept] = "application/octet-stream";
+                client.DownloadFile(release.DownloadUrl, partial);
+            }
+
+            FileInfo downloaded = new FileInfo(partial);
+            if (!downloaded.Exists || downloaded.Length < 100000) throw new InvalidDataException("下載的更新檔案不完整。");
+            if (release.AssetSize > 0 && downloaded.Length != release.AssetSize) throw new InvalidDataException("更新檔案大小與 GitHub 資料不符。");
+            using (FileStream stream = File.OpenRead(partial))
+            {
+                if (stream.ReadByte() != 'M' || stream.ReadByte() != 'Z') throw new InvalidDataException("下載內容不是有效的 Windows 程式。");
+            }
+            VerifyDigest(partial, release.Digest);
+            if (File.Exists(completed)) File.Delete(completed);
+            File.Move(partial, completed);
+            return completed;
+        }
+
+        internal static void VerifyDigest(string path, string digest)
+        {
+            if (string.IsNullOrWhiteSpace(digest)) return;
+            const string prefix = "sha256:";
+            if (!digest.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("GitHub 提供了不支援的檔案驗證格式。");
+            string expected = digest.Substring(prefix.Length).Trim();
+            string actual;
+            using (SHA256 sha = SHA256.Create())
+            using (FileStream stream = File.OpenRead(path))
+                actual = BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", "").ToLowerInvariant();
+            if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("更新檔案的 SHA-256 驗證失敗，已停止安裝。");
+        }
+
+        internal static string GetUpdateRoot()
+        {
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DeskBound", "updates");
+        }
+
+        public static void CleanupStaleDownloads()
+        {
+            try
+            {
+                string root = GetUpdateRoot();
+                if (!Directory.Exists(root)) return;
+                string current = Path.GetFullPath(Assembly.GetExecutingAssembly().Location);
+                foreach (string file in Directory.EnumerateFiles(root))
+                {
+                    if (string.Equals(Path.GetFullPath(file), current, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (DateTime.UtcNow - File.GetLastWriteTimeUtc(file) > TimeSpan.FromDays(1))
+                        File.Delete(file);
+                }
+            }
+            catch { }
+        }
+    }
+
+    internal static class UpdateInstaller
+    {
+        private static string ResultPath
+        {
+            get { return Path.Combine(UpdateService.GetUpdateRoot(), "update-result.txt"); }
+        }
+
+        public static int Apply(string[] args)
+        {
+            string target = null;
+            string backup = null;
+            try
+            {
+                if (args == null || args.Length < 5) throw new ArgumentException("更新參數不完整。");
+                int parentId;
+                if (!int.TryParse(args[1], out parentId)) throw new ArgumentException("更新程序識別碼不正確。");
+                string source = Path.GetFullPath(args[2]);
+                target = Path.GetFullPath(args[3]);
+                string version = args[4];
+                bool restart = !args.Skip(5).Any(a => string.Equals(a, "--no-restart", StringComparison.OrdinalIgnoreCase));
+                string updateRoot = Path.GetFullPath(UpdateService.GetUpdateRoot()).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                if (!source.StartsWith(updateRoot, StringComparison.OrdinalIgnoreCase) || !string.Equals(Path.GetExtension(source), ".exe", StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("更新檔案不在桌伴的安全更新資料夾中。");
+                if (!string.Equals(Path.GetExtension(target), ".exe", StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("更新目標不是 Windows 程式。");
+
+                try
+                {
+                    Process parent = Process.GetProcessById(parentId);
+                    if (!parent.HasExited) parent.WaitForExit(30000);
+                }
+                catch (ArgumentException) { }
+
+                Directory.CreateDirectory(updateRoot);
+                backup = Path.Combine(updateRoot, Path.GetFileNameWithoutExtension(target) + ".previous.exe");
+                if (File.Exists(target)) File.Copy(target, backup, true);
+                Exception lastError = null;
+                for (int attempt = 0; attempt < 20; attempt++)
+                {
+                    try { File.Copy(source, target, true); lastError = null; break; }
+                    catch (Exception ex) { lastError = ex; Thread.Sleep(250); }
+                }
+                if (lastError != null) throw lastError;
+                if (!string.Equals(FileDigest(source), FileDigest(target), StringComparison.OrdinalIgnoreCase))
+                    throw new IOException("更新後的程式檔案驗證失敗。");
+
+                WriteResult("SUCCESS|" + version);
+                if (restart) Process.Start(new ProcessStartInfo(target) { UseShellExecute = true });
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                try { if (!string.IsNullOrEmpty(backup) && File.Exists(backup) && !string.IsNullOrEmpty(target)) File.Copy(backup, target, true); } catch { }
+                WriteResult("ERROR|" + ex.Message);
+                try
+                {
+                    bool restart = args == null || !args.Skip(5).Any(a => string.Equals(a, "--no-restart", StringComparison.OrdinalIgnoreCase));
+                    if (restart && !string.IsNullOrEmpty(target) && File.Exists(target)) Process.Start(new ProcessStartInfo(target) { UseShellExecute = true });
+                }
+                catch { }
+                return 1;
+            }
+        }
+
+        private static string FileDigest(string path)
+        {
+            using (SHA256 sha = SHA256.Create())
+            using (FileStream stream = File.OpenRead(path))
+                return BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", "");
+        }
+
+        private static void WriteResult(string value)
+        {
+            try { Directory.CreateDirectory(UpdateService.GetUpdateRoot()); File.WriteAllText(ResultPath, value ?? ""); } catch { }
+        }
+
+        public static string ConsumeResult()
+        {
+            try
+            {
+                if (!File.Exists(ResultPath)) return null;
+                string value = File.ReadAllText(ResultPath);
+                File.Delete(ResultPath);
+                return value;
+            }
+            catch { return null; }
+        }
+
+        public static string Quote(string value)
+        {
+            return "\"" + (value ?? "").Replace("\"", "\\\"") + "\"";
         }
     }
 

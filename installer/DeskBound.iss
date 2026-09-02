@@ -1,5 +1,5 @@
 #define MyAppName "桌伴"
-#define MyAppVersion "0.12.0"
+#define MyAppVersion "0.13.0"
 #define MyAppPublisher "桌伴"
 #define MyAppExeName "桌伴.exe"
 

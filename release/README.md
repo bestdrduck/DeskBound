@@ -1,6 +1,6 @@
 # GitHub Releases 發布準備
 
-目前專案已具備單檔程式與 Inno Setup 安裝腳本。安裝 Inno Setup 6 後，編譯 `installer\DeskBound.iss` 會在 `outputs` 產生 `桌伴-Setup-0.12.0.exe`。
+目前專案已具備單檔程式與 Inno Setup 安裝腳本。安裝 Inno Setup 6 後，編譯 `installer\DeskBound.iss` 會在 `outputs` 產生 `桌伴-Setup-0.13.0.exe`。
 
 GitHub Releases 建議每次上傳：
 
