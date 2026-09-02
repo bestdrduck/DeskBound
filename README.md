@@ -1,14 +1,30 @@
-# 桌伴 DeskBound
+<p align="center">
+  <img src="assets/DeskBound-logo.png" width="104" alt="DeskBound logo">
+</p>
 
-桌伴是一個獨立開發的 Windows 10/11 桌面整理工具，使用 Windows 內建的 .NET Framework 與 WPF，不依賴 Electron。
+<h1 align="center">桌伴 DeskBound</h1>
 
-> 本專案與 Stardock Corporation 或 Fences® 無關，亦未獲其贊助或認可。
+<p align="center">
+  讓桌面保持整齊，也保留你原本的使用方式。<br>
+  <em>Keep your desktop organized without changing the way you work.</em>
+</p>
 
-## 下載
+<p align="center">
+  <a href="#繁體中文">繁體中文</a> · <a href="#english">English</a> ·
+  <a href="https://github.com/bestdrduck/DeskBound/releases/latest">Download</a>
+</p>
+
+> 桌伴是獨立開發的 Windows 桌面整理工具。本專案與 Stardock Corporation 或 Fences® 無關，亦未獲其贊助或認可。
+
+## 繁體中文
+
+桌伴是一款輕量的 Windows 10/11 桌面整理工具。它能把檔案、資料夾與捷徑收進可移動、可分頁的半透明圍欄，並支援 Wallpaper Engine 等動態桌布。程式使用 Windows 內建的 .NET Framework 與 WPF，不依賴 Electron。
+
+### 下載
 
 一般使用者請到 [GitHub Releases](https://github.com/bestdrduck/DeskBound/releases/latest) 下載最新版 `DeskBound.exe`。第一次啟動不會自動搬動任何桌面檔案。
 
-## 0.13.0 功能
+### 0.13.0 功能
 
 - 啟動時會在背景檢查 GitHub Releases；最多每六小時檢查一次，可在「使用說明」關閉
 - 發現新版後可從通知、系統匣或控制中心一鍵下載、驗證 SHA-256、自動替換並重新啟動
@@ -64,7 +80,7 @@
 - 每個圍欄都是獨立桌面子視窗，不建立全螢幕覆蓋層，降低 Wallpaper Engine 誤判與效能負擔
 - 圍欄維持相容透明 WPF 的頂層視窗，並設為 Windows 桌面宿主的擁有視窗；以工具視窗樣式排除 Alt+Tab，按 Win+D／右下角顯示桌面後會留在桌面層
 
-## 建置
+### 建置
 
 在 Windows PowerShell 執行：
 
@@ -74,7 +90,7 @@
 
 輸出位於 `outputs\桌伴.exe`。為相容舊版，版面設定仍儲存在 `%LOCALAPPDATA%\DeskBound\layout.json`。
 
-## 操作
+### 操作
 
 - 拖曳標題列：移動圍欄
 - 拖曳右下角：調整大小
@@ -90,3 +106,39 @@
 - 系統匣雙擊：開啟桌伴控制中心
 - `Ctrl + Alt + Space`：隱藏／顯示全部圍欄
 - `Ctrl + Alt + P`：切換快速查看圍欄
+
+## English
+
+DeskBound is a lightweight desktop organizer for Windows 10 and Windows 11. It groups files, folders, and shortcuts into movable, tabbed desktop fences while keeping the underlying files real and accessible. Its transparent WPF windows are designed to work alongside animated wallpapers, including Wallpaper Engine, without creating a full-screen overlay.
+
+### Highlights
+
+- Movable, resizable, collapsible desktop fences with multiple tabs
+- Drag desktop items into a fence and move them back out at any time
+- Folder-backed fences, in-fence folder navigation, search, sorting, and multi-selection
+- Desktop Inbox for automatically collecting newly created desktop items
+- Smart organization rules, layout snapshots, scenes, and persistent undo history
+- Four visual styles, adjustable opacity, accent colors, icon sizes, and title visibility
+- Wallpaper Engine optimization and Windows desktop-layer integration
+- Background update checks with one-click, SHA-256-verified self-updates
+- No sample files are added and no desktop items are moved on first launch
+
+### Download and updates
+
+Download the latest portable build from [GitHub Releases](https://github.com/bestdrduck/DeskBound/releases/latest). Starting with version 0.13.0, DeskBound checks for updates in the background and can safely replace and restart itself after confirmation.
+
+### Data safety
+
+Removing a fence or tab removes only its layout entry—it does not delete your files. File moves avoid overwriting name collisions, layout data keeps a backup, and failed application updates restore the previous executable. Existing settings are stored under `%LOCALAPPDATA%\DeskBound` for backward compatibility.
+
+### Build from source
+
+Run the following command in Windows PowerShell:
+
+```powershell
+.\build.ps1
+```
+
+The local build is written to `outputs\桌伴.exe`.
+
+> DeskBound is an independent project and is not affiliated with, sponsored by, or endorsed by Stardock Corporation or Fences®.
