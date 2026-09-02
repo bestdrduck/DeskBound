@@ -35,8 +35,9 @@
 - 自由拖入與移出項目，以及可選用的桌面收件匣
 - 搜尋、排序、縮圖、多選、智慧整理與復原
 - 版面快照、情境配置、自訂外觀與 Wallpaper Engine 支援
+- 可跟隨系統，或切換繁體中文與英文介面
 - 內建以安裝程式升級並檢查檔案完整性的更新功能
-- 等等……
+- 還有更多！
 
 <p align="center">
   <img src="assets/screenshots/desktop-inbox.png" width="360" alt="桌面收件匣">

@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using Drawing = System.Drawing;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -30,8 +31,8 @@ using MediaColors = System.Windows.Media.Colors;
 [assembly: AssemblyTitle("桌伴")]
 [assembly: AssemblyProduct("桌伴")]
 [assembly: AssemblyDescription("輕量、漂亮且支援動態桌布的 Windows 桌面圍欄")]
-[assembly: AssemblyVersion("0.14.0.0")]
-[assembly: AssemblyFileVersion("0.14.0.0")]
+[assembly: AssemblyVersion("0.15.0.0")]
+[assembly: AssemblyFileVersion("0.15.0.0")]
 
 namespace DeskBound
 {
@@ -82,11 +83,366 @@ namespace DeskBound
         }
     }
 
+    internal static class I18n
+    {
+        private static bool english;
+        private static string option = "System";
+        private static readonly Dictionary<string, string> En = new Dictionary<string, string>
+        {
+            { "桌伴", "DeskBound" },
+            { "桌伴控制中心", "DeskBound Control Center" },
+            { "桌面圍欄控制中心", "Desktop panel control center" },
+            { "工作區", "Workspace" },
+            { "圍欄管理", "Panel management" },
+            { "外觀與排列", "Appearance" },
+            { "使用說明", "Help" },
+            { "說明", "Help" },
+            { "系統狀態", "System status" },
+            { "●  桌伴正在執行", "●  DeskBound is running" },
+            { "●  運作正常", "●  Running normally" },
+            { "你的桌面，現在井然有序。", "Your desktop, finally in order." },
+            { "從這裡建立圍欄、快速整理桌面，或調整整套外觀。", "Create panels, organize quickly, and shape the whole desktop from here." },
+            { "目前版面", "Current layout" },
+            { "建立圍欄", "Create panels" },
+            { "新增一個空白空間，或直接連結現有資料夾", "Start with an empty space or link an existing folder" },
+            { "＋  新增空白圍欄", "+  New empty panel" },
+            { "▣  新增資料夾圍欄", "▣  New folder panel" },
+            { "建立乾淨區域，拖入後安全收納", "Create a clean space and safely collect dropped items" },
+            { "直接查看指定資料夾，不搬動內容", "View a folder directly without moving its contents" },
+            { "快速功能", "Quick actions" },
+            { "常用操作集中在這裡，需要時再展開更多設定", "Common actions stay close, with more settings when you need them" },
+            { "顯示與尋找", "Show & find" },
+            { "控制圍欄可見狀態，快速找到內容", "Control visibility and quickly locate content" },
+            { "顯示全部", "Show all" },
+            { "隱藏全部", "Hide all" },
+            { "快速查看", "Quick Peek" },
+            { "搜尋全部", "Search all" },
+            { "版面與快照", "Layouts & snapshots" },
+            { "排列、保存或切換整套桌面配置", "Arrange, save, or switch the complete desktop layout" },
+            { "情境配置", "Scenes" },
+            { "自動排列", "Auto arrange" },
+            { "建立快照", "Create snapshot" },
+            { "還原快照", "Restore snapshot" },
+            { "智慧工具", "Smart tools" },
+            { "自動分類與桌面新項目收納", "Automatic sorting and collection of new desktop items" },
+            { "智慧整理", "Smart organize" },
+            { "分類規則", "Classification rules" },
+            { "桌面收件匣", "Desktop Inbox" },
+            { "圍欄資料夾", "Panel folders" },
+            { "內容與復原", "Content & recovery" },
+            { "查看搬移紀錄，處理不再需要的版面", "Review moves and clean up layouts you no longer need" },
+            { "復原紀錄", "Move history" },
+            { "清除全部", "Clear all" },
+            { "自動化", "Automation" },
+            { "控制啟動方式與桌面新項目的去向", "Control startup and where new desktop items go" },
+            { "登入 Windows 時自動啟動桌伴", "Start DeskBound when I sign in to Windows" },
+            { "依檔案類型自動整理桌面新項目", "Automatically organize new desktop items by file type" },
+            { "將桌面新出現的項目自動收入「桌面收件匣」", "Automatically collect new desktop items in Desktop Inbox" },
+            { "目前的圍欄", "Your panels" },
+            { "管理顯示、內容資料夾與個別外觀", "Manage visibility, content folders, and individual appearance" },
+            { "讓每個圍欄都像你的桌面。", "Make every panel feel at home." },
+            { "需要時，再回來這裡。", "Come back whenever you need it." },
+            { "整理桌面，也整理思緒。", "Organize your desktop and your thoughts." },
+            { "桌面控制中心", "Desktop control center" },
+            { "設計你的桌面圍欄", "Design your desktop panels" },
+            { "選擇圍欄後直接調整；預覽與桌面上的圍欄會同步更新。", "Choose a panel and adjust it directly; the preview and desktop update together." },
+            { "介面語言", "Interface language" },
+            { "跟隨 Windows 或選擇顯示語言；切換後會重新啟動桌伴", "Follow Windows or choose a display language; DeskBound restarts after switching" },
+            { "跟隨系統", "Follow system" },
+            { "繁體中文", "Traditional Chinese" },
+            { "正在編輯", "Editing" },
+            { "即時預覽", "Live preview" },
+            { "顯示目前圍欄的配色、透明度、圓角與陰影", "Preview the current panel's color, opacity, corners, and shadow" },
+            { "圍欄樣式", "Panel style" },
+            { "四種不同材質與邊框表現", "Four distinct materials and border treatments" },
+            { "晶透玻璃", "Clear glass" },
+            { "輕盈通透", "Light and transparent" },
+            { "經典柵欄", "Classic fence" },
+            { "深色實用", "Dark and practical" },
+            { "柔霧面板", "Soft frost" },
+            { "柔和厚實", "Soft and substantial" },
+            { "強調框線", "Accent outline" },
+            { "清楚醒目", "Clear and vivid" },
+            { "強調色", "Accent color" },
+            { "套用到外框、選取狀態與滾動條", "Used for borders, selection, and scrollbars" },
+            { "系統", "System" },
+            { "藍紫", "Indigo" },
+            { "青綠", "Teal" },
+            { "暖橘", "Warm orange" },
+            { "玫紅", "Rose" },
+            { "天藍", "Sky blue" },
+            { "紫晶", "Amethyst" },
+            { "透明度", "Opacity" },
+            { "拖曳時會同步更新預覽與桌面圍欄", "Updates the preview and desktop panel while you drag" },
+            { "標題列", "Title bar" },
+            { "可關閉圍欄名稱，保留項目數量與搜尋功能", "Hide the panel name while keeping item count and search" },
+            { "顯示圍欄名稱", "Show panel name" },
+            { "隱藏圍欄名稱", "Hide panel name" },
+            { "圖示大小", "Icon size" },
+            { "調整圍欄內容的密度", "Adjust the density of panel contents" },
+            { "小", "Small" },
+            { "中", "Medium" },
+            { "大", "Large" },
+            { "排列方式", "Sort order" },
+            { "選擇圍欄內項目的預設順序", "Choose the default order of panel items" },
+            { "名稱", "Name" },
+            { "最近修改", "Recently modified" },
+            { "檔案類型", "File type" },
+            { "圓角", "Corner radius" },
+            { "可覆蓋樣式原本的圓角尺寸", "Override the style's default corner radius" },
+            { "樣式預設", "Style default" },
+            { "俐落 8", "Sharp 8" },
+            { "平衡 14", "Balanced 14" },
+            { "圓潤 22", "Round 22" },
+            { "陰影", "Shadow" },
+            { "控制圍欄與桌布之間的立體層次", "Control depth between the panel and wallpaper" },
+            { "關閉", "Off" },
+            { "加強", "Strong" },
+            { "智慧收合", "Smart collapse" },
+            { "滑鼠移開後自動縮成標題列，移回立即展開", "Collapse to the title bar when the pointer leaves and expand on return" },
+            { "手動收合", "Manual" },
+            { "滑鼠感應", "Pointer aware" },
+            { "動態桌布模式", "Animated wallpaper mode" },
+            { "針對 Wallpaper Engine 降低昂貴陰影並保持邊框清楚", "Reduce expensive shadows while keeping borders clear with Wallpaper Engine" },
+            { "一般模式", "Normal mode" },
+            { "動態桌布最佳化", "Optimize for animated wallpaper" },
+            { "桌伴使用說明", "DeskBound help" },
+            { "把桌面內容整理進可移動、可分頁的圍欄，同時保留真正的檔案與資料夾。", "Organize desktop content into movable, tabbed panels while keeping real files and folders." },
+            { "1. 在「圍欄管理」新增空白圍欄或資料夾圍欄。\n2. 把桌面檔案拖入空白圍欄，檔案會安全移到文件中的專用收納資料夾。\n3. 拖出圍欄即可移回桌面或其他檔案總管資料夾。", "1. Open Panel management and create an empty or folder panel.\n2. Drag desktop files into an empty panel; they move safely to its dedicated folder in Documents.\n3. Drag an item out to move it back to the desktop or another File Explorer folder." },
+            { "按圍欄標題列的 ＋ 新增分頁。檔案也可以直接拖到指定分頁標籤；在分頁上按右鍵可重新命名、改用資料夾、排序或移除。移除分頁不會刪除檔案。", "Use + in the panel title bar to add a tab. You can drag files directly onto a tab; right-click it to rename, link a folder, reorder, or remove it. Removing a tab never deletes files." },
+            { "按 Ctrl + Alt + P，圍欄會暫時顯示在其他程式上方，方便快速開啟或拖放檔案；再按一次就回到正常桌面層。", "Press Ctrl + Alt + P to temporarily show panels above other apps for quick access and drag-and-drop. Press it again to return them to the desktop layer." },
+            { "Ctrl + F 搜尋目前分頁；Menu 的「搜尋所有圍欄」可跨圍欄搜尋並直接定位。Ctrl + 點擊可多選；Ctrl + A 選取目前顯示的項目；Ctrl + Z 復原上一批移動。", "Ctrl + F searches the current tab. Search all panels locates items across panels. Ctrl + click selects multiple items, Ctrl + A selects visible items, and Ctrl + Z restores the last move." },
+            { "雙擊資料夾會直接在圍欄內開啟，標題列會顯示返回按鈕；拖入檔案時會放到目前正在瀏覽的子資料夾。", "Double-click a folder to browse it inside the panel. The title bar shows a Back button, and dropped files go into the folder currently being viewed." },
+            { "啟用後會近乎即時監看之後新出現在桌面的項目；啟用前已有的桌面內容不會突然被移動。可直接在收件匣標題列切換「監看中／已暫停」，新項目會安全移入文件中的專用收納資料夾。", "When enabled, Desktop Inbox watches for new desktop items almost instantly. Existing items are left alone. Pause or resume it from the title bar; collected items move safely to a dedicated folder in Documents." },
+            { "情境配置可保存並切換整套圍欄版面；智慧分類規則可自訂副檔名與檔名關鍵字；復原紀錄最多保留最近 40 次搬移。", "Scenes save and switch complete panel layouts. Classification rules support custom extensions and filename keywords, while move history keeps the 40 latest operations." },
+            { "Win + D 或右下角顯示桌面後，圍欄應留在桌面層。Ctrl + Alt + Space 可隱藏或顯示全部。建立版面快照只保存位置與設定，不會複製或移動檔案。", "Panels remain on the desktop after Win + D or Show Desktop. Ctrl + Alt + Space hides or shows all panels. Layout snapshots save positions and settings without copying or moving files." },
+            { "桌伴使用獨立透明桌面視窗，不建立全螢幕遮罩。若動態桌布效能較吃緊，可到「外觀與排列」開啟動態桌布最佳化。", "DeskBound uses independent transparent desktop windows rather than a full-screen overlay. If an animated wallpaper is demanding, enable animated wallpaper optimization under Appearance." },
+            { "刪除圍欄或分頁只會移除版面入口，不會刪除資料。發生同名檔案時會自動改名而不是覆蓋；版面設定也會保留上一版備份。", "Deleting a panel or tab only removes its layout entry; it never deletes data. Name collisions are renamed instead of overwritten, and the previous layout is kept as a backup." },
+            { "軟體更新", "Software updates" },
+            { "啟動時自動檢查更新", "Automatically check for updates at startup" },
+            { "檢查更新", "Check for updates" },
+            { "開始使用", "Getting started" },
+            { "圍欄分頁", "Panel tabs" },
+            { "快速查看圍欄", "Quick Peek" },
+            { "搜尋、選取與滾動", "Search, selection, and scrolling" },
+            { "圍欄內瀏覽資料夾", "Browse folders inside a panel" },
+            { "情境、規則與復原紀錄", "Scenes, rules, and move history" },
+            { "版面與顯示", "Layout and visibility" },
+            { "資料安全", "Data safety" },
+            { "新增空白圍欄", "New empty panel" },
+            { "新增資料夾圍欄…", "New folder panel…" },
+            { "開啟圍欄資料夾", "Open panel folder" },
+            { "顯示／隱藏", "Show / hide" },
+            { "智慧整理桌面…", "Smart organize desktop…" },
+            { "智慧分類規則…", "Classification rules…" },
+            { "重新載入桌面層", "Reload desktop layer" },
+            { "隨 Windows 自動啟動", "Start with Windows" },
+            { "檢查更新…", "Check for updates…" },
+            { "結束桌伴", "Exit DeskBound" },
+            { "搜尋所有圍欄", "Search all panels" },
+            { "搜尋所有圍欄…", "Search all panels…" },
+            { "移動與復原紀錄", "Move & undo history" },
+            { "移動與復原紀錄…", "Move & undo history…" },
+            { "選取一筆紀錄即可安全搬回原處；同名檔案不會被覆蓋", "Select a move to safely restore it; existing files are never overwritten" },
+            { "情境配置…", "Scenes…" },
+            { "保存並快速切換工作、遊戲或學習版面", "Save and quickly switch work, gaming, or study layouts" },
+            { "先比對檔名關鍵字，再依副檔名分類；使用逗號分隔多個條件", "Filename keywords are matched first, then extensions; separate multiple rules with commas" },
+            { "開啟桌面收件匣", "Open Desktop Inbox" },
+            { "監看桌面新項目", "Watch for new desktop items" },
+            { "重新命名", "Rename" },
+            { "重新命名分頁", "Rename tab" },
+            { "改用現有資料夾…", "Use existing folder…" },
+            { "開啟分頁資料夾", "Open tab folder" },
+            { "向左移", "Move left" },
+            { "向右移", "Move right" },
+            { "移除分頁", "Remove tab" },
+            { "重新整理", "Refresh" },
+            { "搜尋項目…    Ctrl+F", "Search items…    Ctrl+F" },
+            { "收合／展開", "Collapse / expand" },
+            { "鎖定位置與大小", "Lock position and size" },
+            { "復原上次移動    Ctrl+Z", "Undo last move    Ctrl+Z" },
+            { "分頁", "Tabs" },
+            { "新增空白分頁", "New empty tab" },
+            { "新增資料夾分頁…", "New folder tab…" },
+            { "重新命名目前分頁…", "Rename current tab…" },
+            { "移除目前分頁", "Remove current tab" },
+            { "排序", "Sort" },
+            { "名稱（資料夾優先）", "Name (folders first)" },
+            { "外觀與排列設定…", "Appearance & layout…" },
+            { "刪除圍欄", "Delete panel" },
+            { "開啟", "Open" },
+            { "在檔案總管中顯示", "Show in File Explorer" },
+            { "移回桌面", "Move back to desktop" },
+            { "從圍欄移除", "Remove from panel" },
+            { "返回上一層資料夾", "Back to parent folder" },
+            { "新增分頁", "New tab" },
+            { "搜尋項目（Ctrl+F）", "Search items (Ctrl+F)" },
+            { "開啟或暫停桌面收件匣監看", "Start or pause Desktop Inbox monitoring" },
+            { "●  監看中", "●  Watching" },
+            { "○  已暫停", "○  Paused" },
+            { "將項目拖曳到這裡", "Drag items here" },
+            { "檔案會安全移入圍欄資料夾", "Files are safely moved into the panel folder" },
+            { "換個關鍵字再試試看", "Try a different search" },
+            { "載入中", "Loading" },
+            { "正在移回桌面…", "Moving back to desktop…" },
+            { "正在復原…", "Restoring…" },
+            { "正在移入…", "Moving items…" },
+            { "取消", "Cancel" },
+            { "確認", "Confirm" },
+            { "確定", "OK" },
+            { "知道了", "OK" },
+            { "尚未檢查更新", "Updates have not been checked yet" },
+            { "正在檢查 GitHub 最新版本…", "Checking GitHub for the latest version…" },
+            { "暫時無法連線到 GitHub", "Unable to connect to GitHub right now" },
+            { "桌伴有新版本", "A DeskBound update is available" },
+            { "已推出，點一下即可更新。", " is available. Click to update." },
+            { "有新版本 ", "Version " },
+            { " 可安裝", " is ready to install" },
+            { "已是最新版本 ", "Up to date · " },
+            { "目前已是最新版本 ", "You already have the latest version, " },
+            { "正在下載版本 ", "Downloading version " },
+            { "安裝更新", "Install update" },
+            { "無法檢查更新", "Unable to check for updates" },
+            { "無法下載更新", "Unable to download the update" },
+            { "無法安裝更新", "Unable to install the update" },
+            { "下載更新失敗", "Update download failed" },
+            { "無法啟動更新程式", "Unable to start the updater" },
+            { "新圍欄", "New panel" },
+            { "工作", "Work" },
+            { "主要", "Main" },
+            { "常用", "Favorites" },
+            { "資料夾", "Folders" },
+            { "遊戲", "Games" },
+            { "遊戲收藏", "Game collection" },
+            { "文件", "Documents" },
+            { "圖片", "Images" },
+            { "下載", "Downloads" },
+            { "壓縮檔", "Archives" },
+            { "安裝程式", "Installers" },
+            { "影音", "Media" },
+            { "捷徑", "Shortcuts" },
+            { "桌面", "Desktop" },
+            { "恢復預設", "Restore defaults" },
+            { "儲存規則", "Save rules" },
+            { "分類", "Category" },
+            { "副檔名", "Extensions" },
+            { "檔名關鍵字（可留空）", "Filename keywords (optional)" },
+            { "保存目前情境", "Save current scene" },
+            { "切換到選取情境", "Switch to selected scene" },
+            { "刪除", "Delete" },
+            { "輸入檔名、資料夾名稱或路徑", "Enter a filename, folder name, or path" },
+            { "找不到符合的項目", "No matching items" },
+            { "還沒有可復原的搬移紀錄", "No moves available to restore" },
+            { "最多保留最近 40 次搬移", "Keeps the 40 most recent moves" },
+            { "先選取一筆紀錄", "Select a move first" },
+            { "復原這筆搬移", "Restore this move" },
+            { "重新命名圍欄", "Rename panel" },
+            { "圍欄名稱", "Panel name" },
+            { "目前沒有可設定的圍欄\n請先到「圍欄管理」新增一個圍欄", "There are no panels to customize yet.\nCreate one under Panel management first." },
+            { "目前是空白桌面\n按上方按鈕新增第一個圍欄", "Your desktop layout is empty.\nUse the buttons above to create your first panel." },
+            { "輸入文字即可搜尋所有圍欄與分頁\n雙擊結果會切換到該位置並選取項目", "Type to search every panel and tab.\nDouble-click a result to reveal and select it." },
+            { "尚未建立情境\n先將圍欄排成想要的樣子，再按「保存目前情境」", "No scenes yet.\nArrange your panels, then choose Save current scene." },
+            { "無法切換語言", "Unable to switch language" },
+            { "選擇要顯示在新圍欄中的資料夾", "Choose a folder to display in the new panel" },
+            { "選擇新分頁要顯示的資料夾", "Choose a folder for the new tab" },
+            { "選擇要顯示在圍欄中的資料夾", "Choose a folder to display in the panel" },
+            { "輸入檔名篩選", "Filter by filename" },
+            { "桌伴已啟動", "DeskBound is running" },
+            { "從系統匣開啟控制中心，或按 Ctrl + Alt + Space 顯示／隱藏圍欄。", "Open Control Center from the system tray, or press Ctrl + Alt + Space to show or hide panels." }
+        };
+
+        public static bool IsEnglish { get { return english; } }
+        public static string Option { get { return option; } }
+
+        public static void Configure(string value)
+        {
+            option = string.IsNullOrWhiteSpace(value) ? "System" : value;
+            english = string.Equals(option, "en-US", StringComparison.OrdinalIgnoreCase) ||
+                (string.Equals(option, "System", StringComparison.OrdinalIgnoreCase) &&
+                 !CultureInfo.CurrentUICulture.Name.StartsWith("zh", StringComparison.OrdinalIgnoreCase));
+        }
+
+        public static string T(string value)
+        {
+            if (!english || string.IsNullOrEmpty(value)) return value;
+            if (value.StartsWith("要安裝桌伴 ", StringComparison.Ordinal))
+            {
+                int marker = value.IndexOf(" 嗎？", StringComparison.Ordinal);
+                string version = marker > 6 ? value.Substring(6, marker - 6) : "the latest version";
+                return "Install DeskBound " + version + "?\n\nDeskBound will download the official Setup installer from GitHub Releases, verify its integrity, and keep the current installation location. Your panels and files will not be moved.";
+            }
+            if (value.StartsWith("桌伴已更新完成。", StringComparison.Ordinal))
+                return value.Replace("桌伴已更新完成。", "DeskBound was updated successfully.").Replace("目前版本：", "Current version: ");
+            if (value.StartsWith("更新沒有完成，桌伴已保留原本版本。", StringComparison.Ordinal))
+                return value.Replace("更新沒有完成，桌伴已保留原本版本。", "The update did not finish. DeskBound kept the previous version.");
+            string translated;
+            if (En.TryGetValue(value, out translated)) return translated;
+            translated = value;
+            foreach (KeyValuePair<string, string> pair in En.OrderByDescending(pair => pair.Key.Length))
+                translated = translated.Replace(pair.Key, pair.Value);
+            translated = translated.Replace(" 個圍欄", " panels").Replace(" 個項目", " items").Replace(" 個已選取", " selected");
+            translated = translated.Replace("版本 ", "Version ").Replace("安裝 ", "Install ");
+            return translated;
+        }
+
+        public static string DashboardDate(DateTime value)
+        {
+            return english ? value.ToString("MMM d, dddd", CultureInfo.GetCultureInfo("en-US")) : value.ToString("M月d日 dddd");
+        }
+
+        public static void Apply(DependencyObject root)
+        {
+            Apply(root, new HashSet<DependencyObject>());
+        }
+
+        private static void Apply(DependencyObject node, HashSet<DependencyObject> visited)
+        {
+            if (!english || node == null || !visited.Add(node)) return;
+            FrameworkElement framework = node as FrameworkElement;
+            if (framework != null && string.Equals(framework.Tag as string, "i18n-skip", StringComparison.Ordinal)) return;
+            Window window = node as Window;
+            if (window != null) window.Title = T(window.Title);
+            TextBlock text = node as TextBlock;
+            if (text != null) text.Text = T(text.Text);
+            ContentControl content = node as ContentControl;
+            if (content != null && content.Content is string) content.Content = T((string)content.Content);
+            HeaderedItemsControl header = node as HeaderedItemsControl;
+            if (header != null && header.Header is string) header.Header = T((string)header.Header);
+            if (framework != null && framework.ToolTip is string) framework.ToolTip = T((string)framework.ToolTip);
+            foreach (object child in LogicalTreeHelper.GetChildren(node))
+            {
+                DependencyObject dependency = child as DependencyObject;
+                if (dependency != null) Apply(dependency, visited);
+            }
+            ItemsControl items = node as ItemsControl;
+            if (items != null)
+                foreach (object item in items.Items)
+                {
+                    DependencyObject dependency = item as DependencyObject;
+                    if (dependency != null) Apply(dependency, visited);
+                }
+        }
+    }
+
     internal static class Program
     {
         [STAThread]
         private static void Main(string[] args)
         {
+            if (args != null && args.Length > 1 && string.Equals(args[0], "--restart-after", StringComparison.OrdinalIgnoreCase))
+            {
+                int previousId;
+                if (int.TryParse(args[1], out previousId))
+                {
+                    try
+                    {
+                        Process previous = Process.GetProcessById(previousId);
+                        if (!previous.HasExited) previous.WaitForExit(15000);
+                    }
+                    catch (ArgumentException) { }
+                }
+            }
+
             if (args != null && args.Length > 0 && string.Equals(args[0], "--apply-update", StringComparison.OrdinalIgnoreCase))
             {
                 Environment.ExitCode = UpdateInstaller.Apply(args);
@@ -195,6 +551,9 @@ namespace DeskBound
             store = new LayoutStore();
             settingsStore = new AppSettingsStore();
             settings = settingsStore.Load();
+            string languageOverride = Environment.GetEnvironmentVariable("DESKBOUND_UI_LANGUAGE");
+            I18n.Configure(string.IsNullOrWhiteSpace(languageOverride) ? settings.UiLanguage : languageOverride);
+            updateStatus = I18n.T("尚未檢查更新");
             saveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(450) };
             saveTimer.Tick += delegate { saveTimer.Stop(); SaveNow(); };
             desktopTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
@@ -241,13 +600,13 @@ namespace DeskBound
             if (models.Count == 0)
                 app.Dispatcher.BeginInvoke(new Action(ShowControlCenter));
             else
-                tray.ShowBalloonTip(1800, "桌伴已啟動", "從系統匣開啟控制中心，或按 Ctrl + Alt + Space 顯示／隱藏圍欄。", Forms.ToolTipIcon.Info);
+                tray.ShowBalloonTip(1800, I18n.T("桌伴已啟動"), I18n.T("從系統匣開啟控制中心，或按 Ctrl + Alt + Space 顯示／隱藏圍欄。"), Forms.ToolTipIcon.Info);
         }
 
         private void CreateTray()
         {
             tray = new Forms.NotifyIcon();
-            tray.Text = "桌伴";
+            tray.Text = I18n.T("桌伴");
             try { tray.Icon = Drawing.Icon.ExtractAssociatedIcon(Assembly.GetExecutingAssembly().Location); }
             catch { tray.Icon = Drawing.SystemIcons.Application; }
             tray.Visible = true;
@@ -323,7 +682,35 @@ namespace DeskBound
 
         public string GetUpdateStatus()
         {
-            return updateStatus;
+            return I18n.T(updateStatus);
+        }
+
+        public string GetUiLanguage()
+        {
+            return string.IsNullOrWhiteSpace(settings.UiLanguage) ? "System" : settings.UiLanguage;
+        }
+
+        public void SetUiLanguage(string language)
+        {
+            string value = string.IsNullOrWhiteSpace(language) ? "System" : language;
+            if (string.Equals(GetUiLanguage(), value, StringComparison.OrdinalIgnoreCase)) return;
+            SaveNow();
+            settings.UiLanguage = value;
+            settingsStore.Save(settings);
+            if (PreviewMode) return;
+            try
+            {
+                Process.Start(new ProcessStartInfo(Assembly.GetExecutingAssembly().Location)
+                {
+                    UseShellExecute = true,
+                    Arguments = "--restart-after " + Process.GetCurrentProcess().Id
+                });
+                Exit();
+            }
+            catch (Exception ex)
+            {
+                AppDialog.Show(ex.Message, "無法切換語言", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
         }
 
         public string GetPendingUpdateVersion()
@@ -366,7 +753,7 @@ namespace DeskBound
                         updateStatus = "有新版本 " + latest.Version.ToString(3) + " 可安裝";
                         NotifyUpdateUi();
                         if (interactive) InstallPendingUpdate();
-                        else tray.ShowBalloonTip(8000, "桌伴有新版本", "版本 " + latest.Version.ToString(3) + " 已推出，點一下即可更新。", Forms.ToolTipIcon.Info);
+                        else tray.ShowBalloonTip(8000, I18n.T("桌伴有新版本"), I18n.T("版本 " + latest.Version.ToString(3) + " 已推出，點一下即可更新。"), Forms.ToolTipIcon.Info);
                     }
                     else
                     {
@@ -436,7 +823,7 @@ namespace DeskBound
 
         private static MenuItem TrayMenuItem(string label, Action action)
         {
-            MenuItem item = new MenuItem { Header = label };
+            MenuItem item = new MenuItem { Header = I18n.T(label) };
             item.Click += delegate { if (action != null) action(); };
             return item;
         }
@@ -446,7 +833,7 @@ namespace DeskBound
             int offset = fences.Count * 26;
             return new FenceModel
             {
-                Id = Guid.NewGuid().ToString("N"), Title = "新圍欄",
+                Id = Guid.NewGuid().ToString("N"), Title = I18n.T("新圍欄"),
                 X = 70 + offset, Y = 100 + offset, Width = 350, Height = 260,
                 Accent = AccentPalette.ToHex(AccentPalette.ReadWindowsAccent()), Opacity = 0.86,
                 Items = new List<string>()
@@ -489,7 +876,7 @@ namespace DeskBound
         {
             using (Forms.FolderBrowserDialog dialog = new Forms.FolderBrowserDialog())
             {
-                dialog.Description = "選擇要顯示在新圍欄中的資料夾";
+                dialog.Description = I18n.T("選擇要顯示在新圍欄中的資料夾");
                 dialog.ShowNewFolderButton = true;
                 if (dialog.ShowDialog() != Forms.DialogResult.OK) return;
                 FenceModel model = CreateNewModel();
@@ -507,6 +894,7 @@ namespace DeskBound
                 controlCenter.Closed += delegate { controlCenter = null; };
             }
             controlCenter.RefreshContent();
+            I18n.Apply(controlCenter);
             if (!controlCenter.IsVisible) controlCenter.Show();
             controlCenter.Activate();
         }
@@ -585,12 +973,12 @@ namespace DeskBound
         public void CaptureFenceTabsAndExit()
         {
             FenceModel model = CreatePreviewModel();
-            model.Title = "遊戲";
+            model.Title = I18n.T("遊戲");
             model.Width = 460; model.Height = 360;
             model.Tabs.Clear();
-            FenceTabModel common = new FenceTabModel { Title = "常用", Accent = model.Accent, Items = model.Items.Take(4).ToList() };
-            FenceTabModel folders = new FenceTabModel { Title = "資料夾", Accent = model.Accent, Items = model.Items.Skip(4).Take(4).ToList() };
-            FenceTabModel games = new FenceTabModel { Title = "遊戲收藏", Accent = model.Accent, Items = model.Items.Skip(8).Take(5).ToList() };
+            FenceTabModel common = new FenceTabModel { Title = I18n.T("常用"), Accent = model.Accent, Items = model.Items.Take(4).ToList() };
+            FenceTabModel folders = new FenceTabModel { Title = I18n.T("資料夾"), Accent = model.Accent, Items = model.Items.Skip(4).Take(4).ToList() };
+            FenceTabModel games = new FenceTabModel { Title = I18n.T("遊戲收藏"), Accent = model.Accent, Items = model.Items.Skip(8).Take(5).ToList() };
             model.Tabs.Add(common); model.Tabs.Add(folders); model.Tabs.Add(games); model.ActiveTabId = games.Id;
             FenceWindow preview = new FenceWindow(model, this);
             preview.Show();
@@ -661,6 +1049,7 @@ namespace DeskBound
                 moveHistoryWindow.Closed += delegate { moveHistoryWindow = null; };
             }
             moveHistoryWindow.RefreshContent();
+            I18n.Apply(moveHistoryWindow);
             if (!moveHistoryWindow.IsVisible) moveHistoryWindow.Show();
             moveHistoryWindow.Activate();
         }
@@ -693,6 +1082,7 @@ namespace DeskBound
                 globalSearchWindow = new GlobalSearchWindow(this);
                 globalSearchWindow.Closed += delegate { globalSearchWindow = null; };
             }
+            I18n.Apply(globalSearchWindow);
             if (!globalSearchWindow.IsVisible) globalSearchWindow.Show();
             globalSearchWindow.Activate();
             globalSearchWindow.FocusSearch();
@@ -760,6 +1150,7 @@ namespace DeskBound
         {
             FenceWindow window = new FenceWindow(model, this);
             fences.Add(window);
+            I18n.Apply(window);
             window.Show();
             window.AttachToDesktop();
             if (chooseSource)
@@ -982,7 +1373,7 @@ namespace DeskBound
             FenceWindow existing = fences.FirstOrDefault(f => f.Model.IsDesktopInbox);
             if (existing != null) return existing;
             FenceModel model = CreateNewModel();
-            model.Title = "桌面收件匣";
+            model.Title = I18n.T("桌面收件匣");
             model.IsDesktopInbox = true;
             model.Accent = "#52C7A5";
             model.Width = 370;
@@ -1138,6 +1529,7 @@ namespace DeskBound
                 ruleEditorWindow.Closed += delegate { ruleEditorWindow = null; };
             }
             ruleEditorWindow.LoadRules();
+            I18n.Apply(ruleEditorWindow);
             if (!ruleEditorWindow.IsVisible) ruleEditorWindow.Show();
             ruleEditorWindow.Activate();
         }
@@ -1178,7 +1570,7 @@ namespace DeskBound
             bool isNew = existing == null;
             if (isNew)
             {
-                model.Title = "智慧整理";
+                model.Title = I18n.T("智慧整理");
                 model.IsAutoOrganizer = true;
                 model.Tabs.Clear();
                 model.ActiveTabId = null;
@@ -1286,6 +1678,7 @@ namespace DeskBound
                 sceneSwitcherWindow.Closed += delegate { sceneSwitcherWindow = null; };
             }
             sceneSwitcherWindow.RefreshContent();
+            I18n.Apply(sceneSwitcherWindow);
             if (!sceneSwitcherWindow.IsVisible) sceneSwitcherWindow.Show();
             sceneSwitcherWindow.Activate();
         }
@@ -1698,7 +2091,7 @@ namespace DeskBound
         {
             List<GlobalSearchResult> found = manager.SearchAll(search.Text);
             results.ItemsSource = found;
-            hint.Text = string.IsNullOrWhiteSpace(search.Text) ? "輸入文字即可搜尋所有圍欄與分頁\n雙擊結果會切換到該位置並選取項目" : "找不到符合的項目";
+            hint.Text = I18n.T(string.IsNullOrWhiteSpace(search.Text) ? "輸入文字即可搜尋所有圍欄與分頁\n雙擊結果會切換到該位置並選取項目" : "找不到符合的項目");
             hint.Visibility = found.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         }
 
@@ -1868,7 +2261,7 @@ namespace DeskBound
                 pair.Value.BorderThickness = selected ? new Thickness(1.5) : new Thickness(1);
             }
             undoButton.IsEnabled = selectedEntry != null;
-            undoButton.Content = selectedEntry == null ? "先選取一筆紀錄" : "復原這筆搬移";
+            undoButton.Content = I18n.T(selectedEntry == null ? "先選取一筆紀錄" : "復原這筆搬移");
             undoButton.Background = selectedEntry == null
                 ? new SolidColorBrush(MediaColor.FromRgb(52, 75, 84))
                 : new SolidColorBrush(MediaColor.FromArgb(190, accent.R, accent.G, accent.B));
@@ -2117,6 +2510,7 @@ namespace DeskBound
             };
             Loaded += delegate
             {
+                I18n.Apply(this);
                 shell.BeginAnimation(UIElement.OpacityProperty, EaseDouble(0, 1, 220, 0));
                 AnimateScale(windowEntranceScale, 1.0, 260);
                 AnimatePageChildren(managePage);
@@ -2205,13 +2599,13 @@ namespace DeskBound
             StackPanel copy = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             dashboardSubtitle = new TextBlock
             {
-                Text = DateTime.Now.ToString("M月d日 dddd") + "  ·  桌面控制中心",
+                Text = I18n.DashboardDate(DateTime.Now) + "  ·  " + I18n.T("桌面控制中心"),
                 Foreground = new SolidColorBrush(MediaColor.FromRgb(117, 139, 158)), FontSize = 10.5,
                 Margin = new Thickness(1, 0, 0, 7)
             };
             dashboardTitle = new TextBlock
             {
-                Text = "整理桌面，也整理思緒。", Foreground = Brushes.White, FontSize = 25,
+                Text = I18n.T("整理桌面，也整理思緒。"), Foreground = Brushes.White, FontSize = 25,
                 FontWeight = FontWeights.SemiBold
             };
             copy.Children.Add(dashboardSubtitle); copy.Children.Add(dashboardTitle); header.Children.Add(copy);
@@ -2532,9 +2926,9 @@ namespace DeskBound
             SetTabAppearance(page);
             if (dashboardTitle != null)
             {
-                dashboardTitle.Text = appearance ? "讓每個圍欄都像你的桌面。" : (help ? "需要時，再回來這裡。" : "整理桌面，也整理思緒。");
-                dashboardSubtitle.Text = DateTime.Now.ToString("M月d日 dddd") + "  ·  " +
-                    (appearance ? "外觀與排列" : (help ? "使用說明" : "桌面控制中心"));
+                dashboardTitle.Text = I18n.T(appearance ? "讓每個圍欄都像你的桌面。" : (help ? "需要時，再回來這裡。" : "整理桌面，也整理思緒。"));
+                dashboardSubtitle.Text = I18n.DashboardDate(DateTime.Now) + "  ·  " +
+                    I18n.T(appearance ? "外觀與排列" : (help ? "使用說明" : "桌面控制中心"));
             }
             if (object.ReferenceEquals(previous, next)) { AnimateDashboardHeader(); return; }
             currentDashboardPage = normalized;
@@ -2753,6 +3147,11 @@ namespace DeskBound
                     FontSize = 12.5, Margin = new Thickness(0, 0, 0, 16)
                 });
 
+                appearanceBody.Children.Add(SectionTitle("介面語言", "跟隨 Windows 或選擇顯示語言；切換後會重新啟動桌伴"));
+                appearanceBody.Children.Add(SegmentedChoices(new[] { "跟隨系統", "繁體中文", "English" },
+                    new[] { "System", "zh-TW", "en-US" }, manager.GetUiLanguage(),
+                    delegate(string value) { manager.SetUiLanguage(value); }));
+
                 if (fences.Count == 0)
                 {
                     Border empty = new Border
@@ -2907,7 +3306,11 @@ namespace DeskBound
                         CommitAppearance(selectedFence, false, false);
                     }));
             }
-            finally { rebuildingAppearance = false; }
+            finally
+            {
+                rebuildingAppearance = false;
+                I18n.Apply(appearanceBody);
+            }
         }
 
         private TextBlock SectionTitle(string title, string subtitle)
@@ -3191,7 +3594,7 @@ namespace DeskBound
             RefreshUpdateStatus();
             IList<FenceWindow> fences = manager.GetFences();
             RefreshAppearance(fences);
-            summaryText.Text = fences.Count + " 個圍欄";
+            summaryText.Text = I18n.T(fences.Count + " 個圍欄");
             fenceList.Children.Clear();
             if (fences.Count == 0)
             {
@@ -3209,11 +3612,13 @@ namespace DeskBound
                     VerticalAlignment = VerticalAlignment.Center
                 };
                 fenceList.Children.Add(empty);
+                I18n.Apply(this);
                 return;
             }
 
             foreach (FenceWindow fence in fences)
                 fenceList.Children.Add(CreateFenceRow(fence));
+            I18n.Apply(this);
         }
 
         private Border CreateFenceRow(FenceWindow fence)
@@ -3428,7 +3833,7 @@ namespace DeskBound
             WindowStyle = WindowStyle.None;
             AllowsTransparency = true;
             Background = Brushes.Transparent;
-            Title = manager.PreviewMode ? "桌伴預覽 - " + model.Title : model.Title;
+            Title = manager.PreviewMode ? I18n.T("桌伴預覽 - ") + model.Title : model.Title;
             Icon = AppBrand.Logo;
             ShowInTaskbar = manager.PreviewMode;
             ShowActivated = manager.PreviewMode;
@@ -3866,6 +4271,7 @@ namespace DeskBound
             menu.Items.Add(right);
             menu.Items.Add(new Separator());
             menu.Items.Add(remove);
+            I18n.Apply(menu);
             return menu;
         }
 
@@ -4013,7 +4419,7 @@ namespace DeskBound
             foreach (FenceTabModel tab in Model.Tabs)
             {
                 if (string.IsNullOrEmpty(tab.Id)) tab.Id = Guid.NewGuid().ToString("N");
-                if (string.IsNullOrWhiteSpace(tab.Title)) tab.Title = "分頁";
+                if (string.IsNullOrWhiteSpace(tab.Title)) tab.Title = I18n.T("分頁");
                 if (string.IsNullOrEmpty(tab.Accent)) tab.Accent = Model.Accent;
                 if (tab.Items == null) tab.Items = new List<string>();
                 if (tab.LastMoves == null) tab.LastMoves = new List<MoveRecord>();
@@ -4111,7 +4517,7 @@ namespace DeskBound
             FenceTabModel tab = new FenceTabModel
             {
                 Id = Guid.NewGuid().ToString("N"),
-                Title = "分頁 " + (Model.Tabs.Count + 1),
+                Title = I18n.T("分頁") + " " + (Model.Tabs.Count + 1),
                 Accent = Model.Accent
             };
             Model.Tabs.Add(tab);
@@ -4130,7 +4536,7 @@ namespace DeskBound
         {
             using (Forms.FolderBrowserDialog dialog = new Forms.FolderBrowserDialog())
             {
-                dialog.Description = "選擇新分頁要顯示的資料夾";
+                dialog.Description = I18n.T("選擇新分頁要顯示的資料夾");
                 dialog.ShowNewFolderButton = true;
                 if (dialog.ShowDialog() != Forms.DialogResult.OK) return;
                 SyncActiveTabState();
@@ -4165,7 +4571,7 @@ namespace DeskBound
         {
             using (Forms.FolderBrowserDialog dialog = new Forms.FolderBrowserDialog())
             {
-                dialog.Description = "選擇「" + tab.Title + "」分頁要顯示的資料夾";
+                dialog.Description = I18n.T("選擇「" + tab.Title + "」分頁要顯示的資料夾");
                 dialog.ShowNewFolderButton = true;
                 if (!string.IsNullOrEmpty(tab.PortalPath) && Directory.Exists(tab.PortalPath)) dialog.SelectedPath = tab.PortalPath;
                 if (dialog.ShowDialog() != Forms.DialogResult.OK) return;
@@ -4232,7 +4638,7 @@ namespace DeskBound
                 AppDialog.Show(ex.Message, "無法建立分頁資料夾", MessageBoxButton.OK, MessageBoxImage.Warning); return;
             }
             if (!string.Equals(Model.ActiveTabId, tab.Id, StringComparison.OrdinalIgnoreCase)) SwitchTab(tab.Id);
-            countText.Text = "正在移入「" + tab.Title + "」…";
+            countText.Text = I18n.T("正在移入「" + tab.Title + "」…");
             e.Effects = DragDropEffects.Move;
             e.Handled = true;
             Task.Factory.StartNew(delegate { return ManagedStorage.MoveInto(paths, destination); })
@@ -4359,6 +4765,7 @@ namespace DeskBound
             // The uncluttered header has no ellipsis button. Right-clicking the fence
             // background or title opens the same full management menu; item and tab
             // buttons keep their own specialized context menus.
+            I18n.Apply(menu);
             ContextMenu = menu;
         }
 
@@ -4864,7 +5271,7 @@ namespace DeskBound
         {
             using (Forms.FolderBrowserDialog dialog = new Forms.FolderBrowserDialog())
             {
-                dialog.Description = "選擇要顯示在圍欄中的資料夾";
+                dialog.Description = I18n.T("選擇要顯示在圍欄中的資料夾");
                 dialog.ShowNewFolderButton = true;
                 if (!string.IsNullOrEmpty(Model.PortalPath) && Directory.Exists(Model.PortalPath))
                     dialog.SelectedPath = Model.PortalPath;
@@ -4932,7 +5339,7 @@ namespace DeskBound
             {
                 return;
             }
-            countText.Text = "載入中";
+            countText.Text = I18n.T("載入中");
             int generation = ++refreshGeneration;
             string folder = GetContentFolder();
             string legacyTabContainer = GetLegacyTabContainer(folder);
@@ -5055,6 +5462,7 @@ namespace DeskBound
                 empty.Child = emptyContent;
                 itemPanel.Children.Add(empty);
             }
+            I18n.Apply(itemPanel);
         }
 
         private static IEnumerable<string> SortPaths(IEnumerable<string> paths, string mode)
@@ -5102,7 +5510,8 @@ namespace DeskBound
                 Text = FriendlyName(path), Foreground = Brushes.White, FontSize = Math.Max(10.2, 11.5 * scale),
                 FontFamily = new FontFamily("Segoe UI Variable Text, Segoe UI"),
                 TextAlignment = TextAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis,
-                MaxWidth = Math.Round(78 * scale), MaxHeight = Math.Round(34 * scale), TextWrapping = TextWrapping.Wrap
+                MaxWidth = Math.Round(78 * scale), MaxHeight = Math.Round(34 * scale), TextWrapping = TextWrapping.Wrap,
+                Tag = "i18n-skip"
             };
             stack.Children.Add(icon);
             stack.Children.Add(label);
@@ -5163,6 +5572,7 @@ namespace DeskBound
                 unpin.Click += delegate { Model.Items.Remove(path); RefreshItems(); manager.SaveSoon(); };
                 menu.Items.Add(unpin);
             }
+            I18n.Apply(menu);
             button.ContextMenu = menu;
             return button;
         }
@@ -5205,10 +5615,10 @@ namespace DeskBound
         private void UpdateSelectionSummary()
         {
             string location = !string.IsNullOrEmpty(browseFolder) ? FriendlyName(browseFolder) + " · " : "";
-            if (selectedPaths.Count > 0) countText.Text = location + selectedPaths.Count + " 個已選取";
+            if (selectedPaths.Count > 0) countText.Text = I18n.T(location + selectedPaths.Count + " 個已選取");
             else if (searchPanel.Visibility == Visibility.Visible && !string.IsNullOrWhiteSpace(searchBox.Text))
-                countText.Text = location + itemButtons.Count + " / " + allItemPaths.Count + " 個項目";
-            else countText.Text = location + itemButtons.Count + " 個項目";
+                countText.Text = I18n.T(location + itemButtons.Count + " / " + allItemPaths.Count + " 個項目");
+            else countText.Text = I18n.T(location + itemButtons.Count + " 個項目");
         }
 
         private static string FriendlyName(string path)
@@ -5388,7 +5798,7 @@ namespace DeskBound
             string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
             string[] sources = paths.Where(p => File.Exists(p) || Directory.Exists(p)).ToArray();
             if (sources.Length == 0 || !Directory.Exists(desktop)) return;
-            countText.Text = "正在移回桌面…";
+            countText.Text = I18n.T("正在移回桌面…");
             Task.Factory.StartNew(delegate { return ManagedStorage.MoveInto(sources, desktop); })
                 .ContinueWith(task => HandleMoveResult(task.Result), TaskScheduler.FromCurrentSynchronizationContext());
         }
@@ -5397,7 +5807,7 @@ namespace DeskBound
         {
             if (lastMoveRecords.Count == 0) return;
             List<MoveRecord> records = new List<MoveRecord>(lastMoveRecords);
-            countText.Text = "正在復原…";
+            countText.Text = I18n.T("正在復原…");
             Task.Factory.StartNew(delegate { return ManagedStorage.Undo(records); })
                 .ContinueWith(task =>
                 {
@@ -5417,7 +5827,7 @@ namespace DeskBound
 
         private void ShowStatus(string message)
         {
-            statusText.Text = message;
+            statusText.Text = I18n.T(message);
             statusToast.Visibility = Visibility.Visible;
             TranslateTransform rise = statusToast.RenderTransform as TranslateTransform;
             if (rise == null)
@@ -5510,7 +5920,7 @@ namespace DeskBound
                 AppDialog.Show(ex.Message, "無法建立圍欄資料夾", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
-            countText.Text = "正在移入…";
+            countText.Text = I18n.T("正在移入…");
             e.Effects = DragDropEffects.Move;
             e.Handled = true;
             Task.Factory.StartNew(delegate { return ManagedStorage.MoveInto(paths, destination); })
@@ -5557,7 +5967,7 @@ namespace DeskBound
 
         public RenameDialog(string current, string title, string prompt)
         {
-            Title = title;
+            Title = I18n.T(title);
             Width = 390; Height = 174;
             WindowStyle = WindowStyle.None;
             AllowsTransparency = true;
@@ -5574,13 +5984,13 @@ namespace DeskBound
                 Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 28, ShadowDepth = 7, Opacity = 0.45 }
             };
             StackPanel stack = new StackPanel();
-            stack.Children.Add(new TextBlock { Text = prompt, Foreground = Brushes.White, FontSize = 13, Margin = new Thickness(0, 0, 0, 8) });
+            stack.Children.Add(new TextBlock { Text = I18n.T(prompt), Foreground = Brushes.White, FontSize = 13, Margin = new Thickness(0, 0, 0, 8) });
             input = new TextBox { Text = current, FontSize = 14, Padding = new Thickness(8, 5, 8, 5) };
             stack.Children.Add(input);
             StackPanel buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
             MediaColor accent = AccentPalette.ReadWindowsAccent();
-            Button cancel = new Button { Content = "取消", Width = 82, Height = 36, Margin = new Thickness(0, 0, 8, 0), Foreground = Brushes.White, Background = new SolidColorBrush(MediaColor.FromRgb(30, 42, 53)), BorderBrush = new SolidColorBrush(MediaColor.FromRgb(54, 70, 83)), BorderThickness = new Thickness(1), Style = UiStyles.GhostButton(9), Cursor = Cursors.Hand };
-            Button ok = new Button { Content = "確定", Width = 82, Height = 36, Foreground = Brushes.White, Background = new SolidColorBrush(MediaColor.FromArgb(195, accent.R, accent.G, accent.B)), BorderBrush = new SolidColorBrush(accent), BorderThickness = new Thickness(1), Style = UiStyles.GhostButton(9), Cursor = Cursors.Hand };
+            Button cancel = new Button { Content = I18n.T("取消"), Width = 82, Height = 36, Margin = new Thickness(0, 0, 8, 0), Foreground = Brushes.White, Background = new SolidColorBrush(MediaColor.FromRgb(30, 42, 53)), BorderBrush = new SolidColorBrush(MediaColor.FromRgb(54, 70, 83)), BorderThickness = new Thickness(1), Style = UiStyles.GhostButton(9), Cursor = Cursors.Hand };
+            Button ok = new Button { Content = I18n.T("確定"), Width = 82, Height = 36, Foreground = Brushes.White, Background = new SolidColorBrush(MediaColor.FromArgb(195, accent.R, accent.G, accent.B)), BorderBrush = new SolidColorBrush(accent), BorderThickness = new Thickness(1), Style = UiStyles.GhostButton(9), Cursor = Cursors.Hand };
             cancel.Click += delegate { DialogResult = false; };
             ok.Click += delegate { DialogResult = true; };
             buttons.Children.Add(cancel); buttons.Children.Add(ok); stack.Children.Add(buttons);
@@ -5696,7 +6106,7 @@ namespace DeskBound
                     foreach (FenceTabModel tab in model.Tabs)
                     {
                         if (string.IsNullOrEmpty(tab.Id)) tab.Id = Guid.NewGuid().ToString("N");
-                        if (string.IsNullOrWhiteSpace(tab.Title)) tab.Title = "分頁";
+                        if (string.IsNullOrWhiteSpace(tab.Title)) tab.Title = I18n.T("分頁");
                         if (tab.Items == null) tab.Items = new List<string>();
                         if (tab.LastMoves == null) tab.LastMoves = new List<MoveRecord>();
                     }
@@ -5795,8 +6205,9 @@ namespace DeskBound
 
     internal sealed class AppSettingsModel
     {
-        public const int CurrentSchemaVersion = 1;
+        public const int CurrentSchemaVersion = 2;
         public int SchemaVersion { get; set; }
+        public string UiLanguage { get; set; }
         public bool AutoOrganizeDesktop { get; set; }
         public bool DesktopInboxEnabled { get; set; }
         public bool AutoCheckUpdates { get; set; }
@@ -5808,6 +6219,7 @@ namespace DeskBound
         public AppSettingsModel()
         {
             SchemaVersion = CurrentSchemaVersion;
+            UiLanguage = "System";
             AutoCheckUpdates = true;
             MoveHistory = new List<MoveHistoryEntry>();
             OrganizerExtensions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -5854,8 +6266,9 @@ namespace DeskBound
         internal static bool Migrate(AppSettingsModel model, int sourceSchema)
         {
             if (model == null || sourceSchema >= AppSettingsModel.CurrentSchemaVersion) return false;
-            // Schema 1 formalizes the existing defaults. Missing collections from older
-            // builds are normalized by Load before this migration is committed.
+            // Schema 1 formalized existing defaults. Schema 2 adds an explicit UI
+            // language preference; older installations follow Windows by default.
+            if (sourceSchema < 2 && string.IsNullOrWhiteSpace(model.UiLanguage)) model.UiLanguage = "System";
             model.SchemaVersion = AppSettingsModel.CurrentSchemaVersion;
             return true;
         }
@@ -5948,12 +6361,12 @@ namespace DeskBound
 
         public static string CategoryTitle(string key)
         {
-            if (string.Equals(key, "Images", StringComparison.OrdinalIgnoreCase)) return "圖片";
-            if (string.Equals(key, "Documents", StringComparison.OrdinalIgnoreCase)) return "文件";
-            if (string.Equals(key, "Archives", StringComparison.OrdinalIgnoreCase)) return "壓縮檔";
-            if (string.Equals(key, "Installers", StringComparison.OrdinalIgnoreCase)) return "安裝程式";
-            if (string.Equals(key, "Media", StringComparison.OrdinalIgnoreCase)) return "影音";
-            if (string.Equals(key, "Shortcuts", StringComparison.OrdinalIgnoreCase)) return "捷徑";
+            if (string.Equals(key, "Images", StringComparison.OrdinalIgnoreCase)) return I18n.T("圖片");
+            if (string.Equals(key, "Documents", StringComparison.OrdinalIgnoreCase)) return I18n.T("文件");
+            if (string.Equals(key, "Archives", StringComparison.OrdinalIgnoreCase)) return I18n.T("壓縮檔");
+            if (string.Equals(key, "Installers", StringComparison.OrdinalIgnoreCase)) return I18n.T("安裝程式");
+            if (string.Equals(key, "Media", StringComparison.OrdinalIgnoreCase)) return I18n.T("影音");
+            if (string.Equals(key, "Shortcuts", StringComparison.OrdinalIgnoreCase)) return I18n.T("捷徑");
             return key;
         }
     }
@@ -6354,20 +6767,26 @@ namespace DeskBound
                 Version parsedUpdateVersion;
                 Assert(UpdateService.TryParseVersion("v0.13.0", out parsedUpdateVersion) && parsedUpdateVersion == new Version(0, 13, 0),
                     "update version parsing");
-                string updateJson = "{\"tag_name\":\"v0.14.0\",\"html_url\":\"https://github.com/bestdrduck/DeskBound/releases/tag/v0.14.0\",\"assets\":[{\"name\":\"DeskBound-Setup-0.14.0.exe\",\"browser_download_url\":\"https://example.invalid/DeskBound-Setup-0.14.0.exe\",\"size\":376832,\"digest\":\"sha256:abc\"}]}";
+                string updateJson = "{\"tag_name\":\"v0.15.0\",\"html_url\":\"https://github.com/bestdrduck/DeskBound/releases/tag/v0.15.0\",\"assets\":[{\"name\":\"DeskBound-Setup.exe\",\"browser_download_url\":\"https://example.invalid/DeskBound-Setup.exe\",\"size\":376832,\"digest\":\"sha256:abc\"}]}";
                 UpdateRelease parsedRelease = UpdateService.ParseLatestRelease(updateJson);
-                Assert(parsedRelease.Version == new Version(0, 14, 0) && parsedRelease.DownloadUrl.EndsWith("DeskBound-Setup-0.14.0.exe") && parsedRelease.AssetSize == 376832,
+                Assert(parsedRelease.Version == new Version(0, 15, 0) && parsedRelease.DownloadUrl.EndsWith("DeskBound-Setup.exe") && parsedRelease.AssetSize == 376832,
                     "update release parsing");
                 AppSettingsModel migratedSettings = new AppSettingsModel { SchemaVersion = 0 };
                 Assert(AppSettingsStore.Migrate(migratedSettings, 0) && migratedSettings.SchemaVersion == AppSettingsModel.CurrentSchemaVersion,
                     "settings schema migration");
+                Assert(migratedSettings.UiLanguage == "System", "language migration default");
+                I18n.Configure("en-US");
+                Assert(I18n.T("圍欄管理") == "Panel management" && I18n.DashboardDate(new DateTime(2026, 9, 3)).StartsWith("Sep"),
+                    "English localization");
+                I18n.Configure("zh-TW");
+                Assert(I18n.T("圍欄管理") == "圍欄管理", "Traditional Chinese localization");
 
                 Assert(AppearanceMath.OutlineTintAlpha(0.65) < AppearanceMath.OutlineTintAlpha(0.98) &&
                     AppearanceMath.OutlineBaseAlpha(0.65) < AppearanceMath.OutlineBaseAlpha(0.98), "outline opacity response");
                 Assert(AppearanceMath.SurfaceAlpha(0.20) == 51 && AppearanceMath.SurfaceAlpha(1.0) == 255 &&
                     AppearanceMath.OutlineBorderAlpha(0.20) < AppearanceMath.OutlineBorderAlpha(1.0), "opacity endpoints");
 
-                File.WriteAllText(report, "PASS\r\nmove-in: PASS\r\nsource-removal: PASS\r\nmove-out: PASS\r\nundo: PASS\r\nundo-persistence: PASS\r\ntab-persistence: PASS\r\nview-preference-persistence: PASS\r\ninbox-new-item-detection: PASS\r\ninbox-partial-download-guard: PASS\r\ninbox-file-folder-move: PASS\r\ninbox-undo: PASS\r\ninbox-history-rules-persistence: PASS\r\nautomatic-update-default: PASS\r\nsettings-schema-migration: PASS\r\norganizer-defaults: PASS\r\noutline-opacity-response: PASS\r\nopacity-endpoints: PASS\r\ncollision-no-overwrite: PASS\r\ncross-volume-fallback: PASS\r\nlayout-backup-recovery: PASS\r\nstartup-command: PASS\r\nupdate-version-parsing: PASS\r\nupdate-release-parsing: PASS\r\ncontent-integrity: PASS\r\n");
+                File.WriteAllText(report, "PASS\r\nmove-in: PASS\r\nsource-removal: PASS\r\nmove-out: PASS\r\nundo: PASS\r\nundo-persistence: PASS\r\ntab-persistence: PASS\r\nview-preference-persistence: PASS\r\ninbox-new-item-detection: PASS\r\ninbox-partial-download-guard: PASS\r\ninbox-file-folder-move: PASS\r\ninbox-undo: PASS\r\ninbox-history-rules-persistence: PASS\r\nautomatic-update-default: PASS\r\nsettings-schema-migration: PASS\r\nlanguage-migration-default: PASS\r\nEnglish-localization: PASS\r\nTraditional-Chinese-localization: PASS\r\norganizer-defaults: PASS\r\noutline-opacity-response: PASS\r\nopacity-endpoints: PASS\r\ncollision-no-overwrite: PASS\r\ncross-volume-fallback: PASS\r\nlayout-backup-recovery: PASS\r\nstartup-command: PASS\r\nupdate-version-parsing: PASS\r\nupdate-release-parsing: PASS\r\ncontent-integrity: PASS\r\n");
                 return 0;
             }
             catch (Exception ex)
@@ -6690,6 +7109,8 @@ namespace DeskBound
 
         private AppDialog(string message, string title, MessageBoxButton buttons, MessageBoxImage image)
         {
+            message = I18n.T(message);
+            title = I18n.T(title);
             result = buttons == MessageBoxButton.YesNo ? MessageBoxResult.No : MessageBoxResult.OK;
             Title = string.IsNullOrWhiteSpace(title) ? "桌伴" : title;
             Icon = AppBrand.Logo;
@@ -6748,17 +7169,17 @@ namespace DeskBound
             StackPanel actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
             if (buttons == MessageBoxButton.YesNo || buttons == MessageBoxButton.YesNoCancel)
             {
-                Button no = DialogButton("取消", false, accent); no.Click += delegate { result = MessageBoxResult.No; Close(); }; actions.Children.Add(no);
-                Button yes = DialogButton("確認", true, accent); yes.Click += delegate { result = MessageBoxResult.Yes; Close(); }; actions.Children.Add(yes);
+                Button no = DialogButton(I18n.T("取消"), false, accent); no.Click += delegate { result = MessageBoxResult.No; Close(); }; actions.Children.Add(no);
+                Button yes = DialogButton(I18n.T("確認"), true, accent); yes.Click += delegate { result = MessageBoxResult.Yes; Close(); }; actions.Children.Add(yes);
             }
             else if (buttons == MessageBoxButton.OKCancel)
             {
-                Button cancel = DialogButton("取消", false, accent); cancel.Click += delegate { result = MessageBoxResult.Cancel; Close(); }; actions.Children.Add(cancel);
-                Button ok = DialogButton("確認", true, accent); ok.Click += delegate { result = MessageBoxResult.OK; Close(); }; actions.Children.Add(ok);
+                Button cancel = DialogButton(I18n.T("取消"), false, accent); cancel.Click += delegate { result = MessageBoxResult.Cancel; Close(); }; actions.Children.Add(cancel);
+                Button ok = DialogButton(I18n.T("確認"), true, accent); ok.Click += delegate { result = MessageBoxResult.OK; Close(); }; actions.Children.Add(ok);
             }
             else
             {
-                Button ok = DialogButton("知道了", true, accent); ok.Click += delegate { result = MessageBoxResult.OK; Close(); }; actions.Children.Add(ok);
+                Button ok = DialogButton(I18n.T("知道了"), true, accent); ok.Click += delegate { result = MessageBoxResult.OK; Close(); }; actions.Children.Add(ok);
             }
             root.Children.Add(actions); Grid.SetRow(actions, 2);
             shell.Child = root; Content = shell;

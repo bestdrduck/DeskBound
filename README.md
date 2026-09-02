@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/screenshots/control-center.png" width="920" alt="DeskBound control center">
+  <img src="assets/screenshots/control-center-en.png" width="920" alt="DeskBound control center">
 </p>
 
 DeskBound is a lightweight desktop organizer for Windows 10 and Windows 11. It groups files, folders, and shortcuts into movable, tabbed desktop panels while keeping every item as a real Windows file.
@@ -35,13 +35,14 @@ DeskBound is a lightweight desktop organizer for Windows 10 and Windows 11. It g
 - Drag items in and out, plus an optional Desktop Inbox
 - Search, sorting, thumbnails, multi-selection, smart organization, and undo
 - Layout snapshots, scenes, custom visual styles, and Wallpaper Engine support
+- English and Traditional Chinese interface with a system-language option
 - Built-in installer-based updates with integrity checks
-- And more…
+- And more!
 
 <p align="center">
-  <img src="assets/screenshots/desktop-inbox.png" width="360" alt="DeskBound Desktop Inbox">
+  <img src="assets/screenshots/desktop-inbox-en.png" width="360" alt="DeskBound Desktop Inbox">
   &nbsp;&nbsp;
-  <img src="assets/screenshots/updates-and-help.png" width="560" alt="DeskBound help and updates">
+  <img src="assets/screenshots/help-en.png" width="560" alt="DeskBound help and updates">
 </p>
 
 ## Install and update
