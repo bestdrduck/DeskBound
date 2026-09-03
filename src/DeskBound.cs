@@ -31,8 +31,8 @@ using MediaColors = System.Windows.Media.Colors;
 [assembly: AssemblyTitle("桌伴")]
 [assembly: AssemblyProduct("桌伴")]
 [assembly: AssemblyDescription("輕量、漂亮且支援動態桌布的 Windows 桌面圍欄")]
-[assembly: AssemblyVersion("0.15.1.0")]
-[assembly: AssemblyFileVersion("0.15.1.0")]
+[assembly: AssemblyVersion("0.15.2.0")]
+[assembly: AssemblyFileVersion("0.15.2.0")]
 
 namespace DeskBound
 {
@@ -6787,10 +6787,32 @@ namespace DeskBound
                 if (directory) MoveDirectoryAcrossVolumes(source, destination);
                 else MoveFileAcrossVolumes(source, destination);
             }
+            NotifyShellMove(source, destination, directory);
+        }
+
+        private static void NotifyShellMove(string source, string destination, bool directory)
+        {
             try
             {
+                uint flags = NativeMethods.SHCNF_PATHW | NativeMethods.SHCNF_FLUSH;
                 NativeMethods.SHChangeNotify(directory ? NativeMethods.SHCNE_RENAMEFOLDER : NativeMethods.SHCNE_RENAMEITEM,
-                    NativeMethods.SHCNF_PATHW | NativeMethods.SHCNF_FLUSHNOWAIT, source, destination);
+                    flags, source, destination);
+
+                // Explorer's desktop view can miss a rename event when an item moves
+                // between folders. Explicit delete/create and parent-directory events
+                // keep the source icon and destination listing in sync immediately.
+                NativeMethods.SHChangeNotify(directory ? NativeMethods.SHCNE_RMDIR : NativeMethods.SHCNE_DELETE,
+                    flags, source, null);
+                NativeMethods.SHChangeNotify(directory ? NativeMethods.SHCNE_MKDIR : NativeMethods.SHCNE_CREATE,
+                    flags, destination, null);
+
+                string sourceParent = Path.GetDirectoryName(source);
+                string destinationParent = Path.GetDirectoryName(destination);
+                if (!string.IsNullOrEmpty(sourceParent))
+                    NativeMethods.SHChangeNotify(NativeMethods.SHCNE_UPDATEDIR, flags, sourceParent, null);
+                if (!string.IsNullOrEmpty(destinationParent) &&
+                    !string.Equals(sourceParent, destinationParent, StringComparison.OrdinalIgnoreCase))
+                    NativeMethods.SHChangeNotify(NativeMethods.SHCNE_UPDATEDIR, flags, destinationParent, null);
             }
             catch { }
         }
@@ -8432,8 +8454,14 @@ namespace DeskBound
         public const uint SHGFI_ICON = 0x000000100;
         public const uint SHGFI_LARGEICON = 0x000000000;
         public const uint SHCNE_RENAMEITEM = 0x00000001;
+        public const uint SHCNE_CREATE = 0x00000002;
+        public const uint SHCNE_DELETE = 0x00000004;
+        public const uint SHCNE_MKDIR = 0x00000008;
+        public const uint SHCNE_RMDIR = 0x00000010;
+        public const uint SHCNE_UPDATEDIR = 0x00001000;
         public const uint SHCNE_RENAMEFOLDER = 0x00020000;
         public const uint SHCNF_PATHW = 0x0005;
+        public const uint SHCNF_FLUSH = 0x1000;
         public const uint SHCNF_FLUSHNOWAIT = 0x2000;
         public static readonly IntPtr HWND_TOP = IntPtr.Zero;
         public static readonly IntPtr HWND_BOTTOM = new IntPtr(1);
