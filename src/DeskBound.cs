@@ -31,8 +31,8 @@ using MediaColors = System.Windows.Media.Colors;
 [assembly: AssemblyTitle("桌伴")]
 [assembly: AssemblyProduct("桌伴")]
 [assembly: AssemblyDescription("輕量、漂亮且支援動態桌布的 Windows 桌面圍欄")]
-[assembly: AssemblyVersion("0.15.0.0")]
-[assembly: AssemblyFileVersion("0.15.0.0")]
+[assembly: AssemblyVersion("0.15.1.0")]
+[assembly: AssemblyFileVersion("0.15.1.0")]
 
 namespace DeskBound
 {
@@ -239,6 +239,14 @@ namespace DeskBound
             { "隨 Windows 自動啟動", "Start with Windows" },
             { "檢查更新…", "Check for updates…" },
             { "結束桌伴", "Exit DeskBound" },
+            { "桌伴保留了原本資料", "DeskBound kept your existing data" },
+            { "版面設定暫時無法讀取，因此桌伴沒有建立或覆寫新的空白設定。", "The layout could not be read, so DeskBound did not create or overwrite it with a blank layout." },
+            { "已復原原本的桌伴版面", "Your DeskBound layout was restored" },
+            { "已從版面備份還原。", "The layout was restored from its backup." },
+            { "找到既有的圍欄資料夾，已重新接回版面。", "Existing panel folders were found and reconnected to the layout." },
+            { "偏好設定暫時無法讀取，因此桌伴不會用預設值覆寫原檔。", "Preferences could not be read, so DeskBound will not overwrite them with defaults." },
+            { "已復原原本的桌伴設定", "Your DeskBound preferences were restored" },
+            { "已從偏好設定備份還原。", "Preferences were restored from their backup." },
             { "搜尋所有圍欄", "Search all panels" },
             { "搜尋所有圍欄…", "Search all panels…" },
             { "移動與復原紀錄", "Move & undo history" },
@@ -538,6 +546,7 @@ namespace DeskBound
         private bool exiting;
         private bool organizingDesktop;
         private bool collectingDesktopInbox;
+        private bool allowLayoutReduction;
         private HashSet<string> desktopInboxBaseline = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private FileSystemWatcher desktopInboxWatcher;
         public bool PreviewMode { get; private set; }
@@ -596,11 +605,19 @@ namespace DeskBound
                 if (settings.AutoCheckUpdates && ShouldAutomaticallyCheckForUpdates())
                     app.Dispatcher.BeginInvoke(new Action(delegate { CheckForUpdates(false); }));
             }
-            SaveSoon();
+            if (!store.LoadFailed) SaveSoon();
             if (models.Count == 0)
                 app.Dispatcher.BeginInvoke(new Action(ShowControlCenter));
             else
                 tray.ShowBalloonTip(1800, I18n.T("桌伴已啟動"), I18n.T("從系統匣開啟控制中心，或按 Ctrl + Alt + Space 顯示／隱藏圍欄。"), Forms.ToolTipIcon.Info);
+            if (store.LoadFailed)
+                tray.ShowBalloonTip(4500, I18n.T("桌伴保留了原本資料"), I18n.T("版面設定暫時無法讀取，因此桌伴沒有建立或覆寫新的空白設定。"), Forms.ToolTipIcon.Warning);
+            else if (store.RecoveredFromBackup || store.RecoveredFromFolders)
+                tray.ShowBalloonTip(4500, I18n.T("已復原原本的桌伴版面"), I18n.T(store.RecoveredFromBackup ? "已從版面備份還原。" : "找到既有的圍欄資料夾，已重新接回版面。"), Forms.ToolTipIcon.Info);
+            if (settingsStore.LoadFailed)
+                tray.ShowBalloonTip(4500, I18n.T("桌伴保留了原本資料"), I18n.T("偏好設定暫時無法讀取，因此桌伴不會用預設值覆寫原檔。"), Forms.ToolTipIcon.Warning);
+            else if (settingsStore.RecoveredFromBackup)
+                tray.ShowBalloonTip(3500, I18n.T("已復原原本的桌伴設定"), I18n.T("已從偏好設定備份還原。"), Forms.ToolTipIcon.Info);
         }
 
         private void CreateTray()
@@ -1162,6 +1179,7 @@ namespace DeskBound
         public void RemoveFence(FenceWindow window)
         {
             if (!fences.Contains(window)) return;
+            allowLayoutReduction = true;
             fences.Remove(window);
             window.CloseFromManager();
             SaveSoon();
@@ -1197,7 +1215,8 @@ namespace DeskBound
         {
             if (exiting || PreviewMode) return;
             foreach (FenceWindow fence in fences) fence.SyncActiveTabState();
-            store.Save(fences.Select(f => f.Model).ToList());
+            if (store.Save(fences.Select(f => f.Model).ToList(), allowLayoutReduction))
+                allowLayoutReduction = false;
         }
 
         private void ToggleVisible()
@@ -1635,6 +1654,7 @@ namespace DeskBound
 
         private void ApplyLayoutModels(List<FenceModel> models)
         {
+            allowLayoutReduction = true;
             foreach (FenceWindow fence in fences.ToArray()) { fences.Remove(fence); fence.CloseFromManager(); }
             foreach (FenceModel model in models ?? new List<FenceModel>()) AddFence(model, false);
             visible = true;
@@ -1813,7 +1833,8 @@ namespace DeskBound
             if (!PreviewMode)
             {
                 foreach (FenceWindow fence in fences) fence.SyncActiveTabState();
-                store.Save(fences.Select(f => f.Model).ToList());
+                if (store.Save(fences.Select(f => f.Model).ToList(), allowLayoutReduction))
+                    allowLayoutReduction = false;
             }
             foreach (FenceWindow fence in fences.ToArray())
                 fence.CloseFromManager();
@@ -6068,80 +6089,251 @@ namespace DeskBound
 
     internal sealed class LayoutStore
     {
+        private readonly string root;
         private readonly string path;
         private readonly string backupPath;
+        private readonly string historyFolder;
+        private readonly string managedRoot;
         private readonly JavaScriptSerializer serializer = new JavaScriptSerializer();
+
+        public bool LoadFailed { get; private set; }
+        public bool RecoveredFromBackup { get; private set; }
+        public bool RecoveredFromFolders { get; private set; }
 
         public LayoutStore() : this(null) { }
 
-        internal LayoutStore(string rootOverride)
+        internal LayoutStore(string rootOverride) : this(rootOverride, null) { }
+
+        internal LayoutStore(string rootOverride, string managedRootOverride)
         {
-            string root = rootOverride ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DeskBound");
+            root = rootOverride ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DeskBound");
             try { Directory.CreateDirectory(root); }
             catch { root = AppDomain.CurrentDomain.BaseDirectory; }
             path = Path.Combine(root, "layout.json");
             backupPath = Path.Combine(root, "layout.backup.json");
+            historyFolder = Path.Combine(root, "layout-history");
+            managedRoot = managedRootOverride ?? ManagedStorage.GetRoot();
         }
 
         public List<FenceModel> Load()
         {
+            LoadFailed = false;
+            RecoveredFromBackup = false;
+            RecoveredFromFolders = false;
+            bool primaryExists = File.Exists(path);
+            bool backupExists = File.Exists(backupPath);
+            if (!primaryExists && !backupExists)
+            {
+                List<FenceModel> discovered = DiscoverManagedFolders();
+                RecoveredFromFolders = discovered.Count > 0;
+                return Normalize(discovered);
+            }
+
             try
             {
-                string source = File.Exists(path) ? path : (File.Exists(backupPath) ? backupPath : null);
-                if (source == null) return new List<FenceModel>();
-                List<FenceModel> result;
-                try { result = serializer.Deserialize<List<FenceModel>>(File.ReadAllText(source)); }
-                catch
+                List<FenceModel> result = null;
+                if (primaryExists)
                 {
-                    if (string.Equals(source, path, StringComparison.OrdinalIgnoreCase) && File.Exists(backupPath))
-                        result = serializer.Deserialize<List<FenceModel>>(File.ReadAllText(backupPath));
-                    else throw;
-                }
-                if (result == null) return new List<FenceModel>();
-                foreach (FenceModel model in result)
-                {
-                    if (model.Items == null) model.Items = new List<string>();
-                    if (model.LastMoves == null) model.LastMoves = new List<MoveRecord>();
-                    if (model.Tabs == null) model.Tabs = new List<FenceTabModel>();
-                    foreach (FenceTabModel tab in model.Tabs)
+                    try
                     {
-                        if (string.IsNullOrEmpty(tab.Id)) tab.Id = Guid.NewGuid().ToString("N");
-                        if (string.IsNullOrWhiteSpace(tab.Title)) tab.Title = I18n.T("分頁");
-                        if (tab.Items == null) tab.Items = new List<string>();
-                        if (tab.LastMoves == null) tab.LastMoves = new List<MoveRecord>();
+                        result = Deserialize(path);
+                        EnsureBackup(path, backupPath);
                     }
-                    if (model.Width < 250) model.Width = 350;
-                    if (model.Height < 150) model.Height = 260;
-                    if (string.IsNullOrEmpty(model.Accent)) model.Accent = "#7C8CFF";
-                    if (string.IsNullOrEmpty(model.FenceStyle)) model.FenceStyle = "Glass";
-                    if (string.IsNullOrEmpty(model.ItemSort)) model.ItemSort = "Name";
-                    if (model.ItemScale < 0.75 || model.ItemScale > 1.30) model.ItemScale = 1.0;
-                    if (model.Opacity <= 0 || model.Opacity > 1.0) model.Opacity = 0.86;
-                    if (model.CornerRadius < 0 || model.CornerRadius > 30) model.CornerRadius = 0;
-                    if (string.IsNullOrEmpty(model.ShadowStyle)) model.ShadowStyle = "Style";
+                    catch { result = null; }
                 }
-                return result;
+                if (result == null && backupExists)
+                {
+                    try { result = Deserialize(backupPath); RecoveredFromBackup = true; }
+                    catch { result = null; }
+                }
+                if (result != null) return Normalize(result);
+
+                // Never turn a read error into a fresh empty layout. If the JSON files
+                // are damaged, rebuild only from real managed folders and retain the
+                // originals for manual recovery.
+                List<FenceModel> recovered = DiscoverManagedFolders();
+                if (recovered.Count > 0)
+                {
+                    RecoveredFromFolders = true;
+                    PreserveForHistory(primaryExists ? path : backupPath, "unreadable");
+                    return Normalize(recovered);
+                }
+                LoadFailed = true;
+                return new List<FenceModel>();
             }
-            catch { return new List<FenceModel>(); }
+            catch
+            {
+                LoadFailed = true;
+                return new List<FenceModel>();
+            }
         }
 
-        public void Save(List<FenceModel> models)
+        public bool Save(List<FenceModel> models, bool allowReduction = false)
         {
+            if (LoadFailed) return false;
+            models = models ?? new List<FenceModel>();
             string temp = path + ".tmp";
             try
             {
-                File.WriteAllText(temp, serializer.Serialize(models));
+                string json = serializer.Serialize(models);
+                if (File.Exists(path) && !allowReduction)
+                {
+                    List<FenceModel> previous = null;
+                    try { previous = Deserialize(path); } catch { }
+                    if (previous != null && models.Count < previous.Count) return false;
+                }
+
+                File.WriteAllText(temp, json);
                 if (File.Exists(path))
                 {
-                    if (File.Exists(backupPath)) File.Delete(backupPath);
-                    File.Replace(temp, path, backupPath, true);
+                    PreserveForHistory(path, "layout");
+                    if (RecoveredFromBackup || RecoveredFromFolders)
+                    {
+                        File.Delete(path);
+                        File.Move(temp, path);
+                        File.Copy(path, backupPath, true);
+                    }
+                    else File.Replace(temp, path, backupPath, true);
                 }
-                else File.Move(temp, path);
+                else
+                {
+                    File.Move(temp, path);
+                    EnsureBackup(path, backupPath);
+                }
+                LoadFailed = false;
+                RecoveredFromBackup = false;
+                RecoveredFromFolders = false;
+                return true;
             }
             catch
             {
                 try { if (File.Exists(temp)) File.Delete(temp); } catch { }
+                return false;
             }
+        }
+
+        private List<FenceModel> Deserialize(string source)
+        {
+            List<FenceModel> result = serializer.Deserialize<List<FenceModel>>(File.ReadAllText(source));
+            if (result == null) throw new InvalidDataException("Layout data is empty.");
+            return result;
+        }
+
+        private List<FenceModel> Normalize(List<FenceModel> result)
+        {
+            result = result ?? new List<FenceModel>();
+            foreach (FenceModel model in result)
+            {
+                if (string.IsNullOrEmpty(model.Id)) model.Id = Guid.NewGuid().ToString("N");
+                if (model.Items == null) model.Items = new List<string>();
+                if (model.LastMoves == null) model.LastMoves = new List<MoveRecord>();
+                if (model.Tabs == null) model.Tabs = new List<FenceTabModel>();
+                foreach (FenceTabModel tab in model.Tabs)
+                {
+                    if (string.IsNullOrEmpty(tab.Id)) tab.Id = Guid.NewGuid().ToString("N");
+                    if (string.IsNullOrWhiteSpace(tab.Title)) tab.Title = I18n.T("分頁");
+                    if (tab.Items == null) tab.Items = new List<string>();
+                    if (tab.LastMoves == null) tab.LastMoves = new List<MoveRecord>();
+                }
+                if (model.Width < 250) model.Width = 350;
+                if (model.Height < 150) model.Height = 260;
+                if (string.IsNullOrEmpty(model.Accent)) model.Accent = "#7C8CFF";
+                if (string.IsNullOrEmpty(model.FenceStyle)) model.FenceStyle = "Glass";
+                if (string.IsNullOrEmpty(model.ItemSort)) model.ItemSort = "Name";
+                if (model.ItemScale < 0.75 || model.ItemScale > 1.30) model.ItemScale = 1.0;
+                if (model.Opacity <= 0 || model.Opacity > 1.0) model.Opacity = 0.86;
+                if (model.CornerRadius < 0 || model.CornerRadius > 30) model.CornerRadius = 0;
+                if (string.IsNullOrEmpty(model.ShadowStyle)) model.ShadowStyle = "Style";
+            }
+            return result;
+        }
+
+        private List<FenceModel> DiscoverManagedFolders()
+        {
+            List<FenceModel> recovered = new List<FenceModel>();
+            if (string.IsNullOrEmpty(managedRoot) || !Directory.Exists(managedRoot)) return recovered;
+            DirectoryInfo[] folders;
+            try { folders = new DirectoryInfo(managedRoot).GetDirectories(); }
+            catch { return recovered; }
+
+            int index = 0;
+            foreach (DirectoryInfo folder in folders.OrderBy(item => item.CreationTimeUtc))
+            {
+                string title;
+                if (!TryManagedName(folder.Name, out title) || folder.Name.EndsWith("-分頁", StringComparison.CurrentCultureIgnoreCase)) continue;
+                bool hasContent;
+                try { hasContent = folder.EnumerateFileSystemInfos("*", SearchOption.AllDirectories).Any(); }
+                catch { hasContent = false; }
+                if (!hasContent) continue;
+
+                FenceModel model = new FenceModel
+                {
+                    Id = Guid.NewGuid().ToString("N"), Title = title,
+                    X = 56 + (index % 4) * 390, Y = 72 + (index / 4) * 330,
+                    Width = 370, Height = 285, ManagedPath = folder.FullName,
+                    Accent = title.IndexOf("收件", StringComparison.CurrentCultureIgnoreCase) >= 0 ? "#52C7A5" : "#4DB6FF",
+                    IsDesktopInbox = title.IndexOf("桌面收件", StringComparison.CurrentCultureIgnoreCase) >= 0
+                };
+                model.Tabs.Clear();
+                IEnumerable<DirectoryInfo> tabFolders = Enumerable.Empty<DirectoryInfo>();
+                try
+                {
+                    List<DirectoryInfo> candidates = new List<DirectoryInfo>();
+                    DirectoryInfo nested = new DirectoryInfo(Path.Combine(folder.FullName, "分頁"));
+                    DirectoryInfo sibling = new DirectoryInfo(folder.FullName + "-分頁");
+                    if (nested.Exists) candidates.AddRange(nested.GetDirectories());
+                    if (sibling.Exists) candidates.AddRange(sibling.GetDirectories());
+                    tabFolders = candidates;
+                }
+                catch { }
+                foreach (DirectoryInfo tabFolder in tabFolders)
+                {
+                    string tabTitle;
+                    if (!TryManagedName(tabFolder.Name, out tabTitle)) tabTitle = tabFolder.Name;
+                    model.Tabs.Add(new FenceTabModel { Title = tabTitle, Accent = model.Accent, ManagedPath = tabFolder.FullName });
+                }
+                FenceTabModel primary = new FenceTabModel { Title = title, Accent = model.Accent, ManagedPath = folder.FullName };
+                model.Tabs.Add(primary);
+                model.ActiveTabId = model.Tabs[0].Id;
+                recovered.Add(model);
+                index++;
+            }
+            return recovered;
+        }
+
+        private static bool TryManagedName(string name, out string title)
+        {
+            title = null;
+            if (string.IsNullOrWhiteSpace(name)) return false;
+            int dash = name.LastIndexOf('-');
+            if (dash <= 0 || name.Length - dash - 1 != 8) return false;
+            string suffix = name.Substring(dash + 1);
+            if (!suffix.All(Uri.IsHexDigit)) return false;
+            title = name.Substring(0, dash).Trim();
+            return title.Length > 0;
+        }
+
+        private void PreserveForHistory(string source, string label)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(source) || !File.Exists(source)) return;
+                Directory.CreateDirectory(historyFolder);
+                string destination = Path.Combine(historyFolder, DateTime.Now.ToString("yyyyMMdd-HHmmss-fff") + "-" + label + ".json");
+                File.Copy(source, destination, false);
+                foreach (FileInfo stale in new DirectoryInfo(historyFolder).GetFiles("*.json").OrderByDescending(file => file.LastWriteTimeUtc).Skip(20))
+                    try { stale.Delete(); } catch { }
+            }
+            catch { }
+        }
+
+        private static void EnsureBackup(string source, string destination)
+        {
+            try
+            {
+                if (File.Exists(source) && !File.Exists(destination)) File.Copy(source, destination, false);
+            }
+            catch { }
         }
     }
 
@@ -6230,37 +6422,66 @@ namespace DeskBound
     internal sealed class AppSettingsStore
     {
         private readonly string path;
+        private readonly string backupPath;
+        private readonly string historyFolder;
         private readonly JavaScriptSerializer serializer = new JavaScriptSerializer();
+        public bool LoadFailed { get; private set; }
+        public bool RecoveredFromBackup { get; private set; }
 
-        public AppSettingsStore()
+        public AppSettingsStore() : this(null) { }
+
+        internal AppSettingsStore(string rootOverride)
         {
-            string root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DeskBound");
+            string root = rootOverride ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DeskBound");
             Directory.CreateDirectory(root);
             path = Path.Combine(root, "settings.json");
+            backupPath = Path.Combine(root, "settings.backup.json");
+            historyFolder = Path.Combine(root, "settings-history");
         }
 
         public AppSettingsModel Load()
         {
-            try
+            LoadFailed = false;
+            RecoveredFromBackup = false;
+            if (File.Exists(path))
             {
-                if (File.Exists(path))
+                try
                 {
-                    string json = File.ReadAllText(path);
-                    int sourceSchema = 0;
-                    Dictionary<string, object> raw = serializer.DeserializeObject(json) as Dictionary<string, object>;
-                    object schemaValue;
-                    if (raw != null && raw.TryGetValue("SchemaVersion", out schemaValue) && schemaValue != null)
-                        int.TryParse(Convert.ToString(schemaValue), out sourceSchema);
-                    AppSettingsModel model = serializer.Deserialize<AppSettingsModel>(json) ?? new AppSettingsModel();
-                    if (model.MoveHistory == null) model.MoveHistory = new List<MoveHistoryEntry>();
-                    if (model.OrganizerExtensions == null) model.OrganizerExtensions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                    if (model.OrganizerKeywords == null) model.OrganizerKeywords = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                    if (Migrate(model, sourceSchema)) Save(model);
-                    return model;
+                    AppSettingsModel loaded = LoadFile(path);
+                    EnsureBackup(path, backupPath);
+                    return loaded;
                 }
+                catch { }
             }
-            catch { }
+            if (File.Exists(backupPath))
+            {
+                try
+                {
+                    AppSettingsModel recovered = LoadFile(backupPath);
+                    RecoveredFromBackup = true;
+                    return recovered;
+                }
+                catch { }
+            }
+            if (File.Exists(path) || File.Exists(backupPath)) LoadFailed = true;
             return new AppSettingsModel();
+        }
+
+        private AppSettingsModel LoadFile(string source)
+        {
+            string json = File.ReadAllText(source);
+            int sourceSchema = 0;
+            Dictionary<string, object> raw = serializer.DeserializeObject(json) as Dictionary<string, object>;
+            object schemaValue;
+            if (raw != null && raw.TryGetValue("SchemaVersion", out schemaValue) && schemaValue != null)
+                int.TryParse(Convert.ToString(schemaValue), out sourceSchema);
+            AppSettingsModel model = serializer.Deserialize<AppSettingsModel>(json);
+            if (model == null) throw new InvalidDataException("Settings data is empty.");
+            if (model.MoveHistory == null) model.MoveHistory = new List<MoveHistoryEntry>();
+            if (model.OrganizerExtensions == null) model.OrganizerExtensions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (model.OrganizerKeywords == null) model.OrganizerKeywords = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            Migrate(model, sourceSchema);
+            return model;
         }
 
         internal static bool Migrate(AppSettingsModel model, int sourceSchema)
@@ -6273,16 +6494,61 @@ namespace DeskBound
             return true;
         }
 
-        public void Save(AppSettingsModel model)
+        public bool Save(AppSettingsModel model)
         {
+            if (LoadFailed) return false;
             string temp = path + ".tmp";
             try
             {
                 File.WriteAllText(temp, serializer.Serialize(model));
-                if (File.Exists(path)) File.Replace(temp, path, null, true);
-                else File.Move(temp, path);
+                if (File.Exists(path))
+                {
+                    PreserveForHistory(path);
+                    if (RecoveredFromBackup)
+                    {
+                        File.Delete(path);
+                        File.Move(temp, path);
+                        File.Copy(path, backupPath, true);
+                    }
+                    else File.Replace(temp, path, backupPath, true);
+                }
+                else
+                {
+                    File.Move(temp, path);
+                    EnsureBackup(path, backupPath);
+                }
+                LoadFailed = false;
+                RecoveredFromBackup = false;
+                return true;
             }
-            catch { try { if (File.Exists(temp)) File.Delete(temp); } catch { } }
+            catch
+            {
+                try { if (File.Exists(temp)) File.Delete(temp); } catch { }
+                return false;
+            }
+        }
+
+        private void PreserveForHistory(string source)
+        {
+            try
+            {
+                if (!File.Exists(source)) return;
+                Directory.CreateDirectory(historyFolder);
+                string destination = Path.Combine(historyFolder, DateTime.Now.ToString("yyyyMMdd-HHmmss-fff") + "-settings.json");
+                File.Copy(source, destination, false);
+                foreach (FileInfo stale in new DirectoryInfo(historyFolder).GetFiles("*.json").OrderByDescending(file => file.LastWriteTimeUtc).Skip(20))
+                    try { stale.Delete(); } catch { }
+            }
+            catch { }
+        }
+
+        private static void EnsureBackup(string source, string destination)
+        {
+            try
+            {
+                if (File.Exists(source) && !File.Exists(destination)) File.Copy(source, destination, false);
+            }
+            catch { }
         }
     }
 
@@ -6761,6 +7027,58 @@ namespace DeskBound
                 File.WriteAllText(Path.Combine(layoutRoot, "layout.json"), "{corrupted");
                 List<FenceModel> recoveredLayout = layoutStore.Load();
                 Assert(recoveredLayout.Count == 1 && recoveredLayout[0].Title == "第一版", "atomic layout backup recovery");
+
+                string guardedLayoutRoot = Path.Combine(testRoot, "guarded-layout-store");
+                LayoutStore guardedLayoutStore = new LayoutStore(guardedLayoutRoot, Path.Combine(testRoot, "no-managed-folders"));
+                Assert(guardedLayoutStore.Save(new List<FenceModel>
+                {
+                    new FenceModel { Id = "keep-one", Title = "保留一" },
+                    new FenceModel { Id = "keep-two", Title = "保留二" }
+                }), "initial guarded layout save");
+                Assert(!guardedLayoutStore.Save(new List<FenceModel> { new FenceModel { Id = "keep-one", Title = "保留一" } }),
+                    "unexpected layout reduction blocked");
+                Assert(guardedLayoutStore.Load().Count == 2, "blocked layout reduction preserves file");
+                Assert(guardedLayoutStore.Save(new List<FenceModel> { new FenceModel { Id = "keep-one", Title = "保留一" } }, true) &&
+                    guardedLayoutStore.Load().Count == 1, "explicit layout reduction allowed");
+
+                string orphanRoot = Path.Combine(testRoot, "managed-folders");
+                string recoveredFenceFolder = Path.Combine(orphanRoot, "遊戲-1234abcd");
+                string recoveredTabFolder = Path.Combine(recoveredFenceFolder, "分頁", "常用-abcd1234");
+                Directory.CreateDirectory(recoveredTabFolder);
+                File.WriteAllText(Path.Combine(recoveredFenceFolder, "game.url"), "game");
+                File.WriteAllText(Path.Combine(recoveredTabFolder, "tool.lnk"), "tool");
+                LayoutStore folderRecoveryStore = new LayoutStore(Path.Combine(testRoot, "missing-layout-store"), orphanRoot);
+                List<FenceModel> folderRecoveredLayout = folderRecoveryStore.Load();
+                Assert(folderRecoveryStore.RecoveredFromFolders && folderRecoveredLayout.Count == 1 &&
+                    folderRecoveredLayout[0].Title == "遊戲" && folderRecoveredLayout[0].Tabs.Any(tab => tab.Title == "常用"),
+                    "existing managed folder recovery");
+
+                string unreadableRoot = Path.Combine(testRoot, "unreadable-layout-store");
+                Directory.CreateDirectory(unreadableRoot);
+                string unreadableLayoutPath = Path.Combine(unreadableRoot, "layout.json");
+                File.WriteAllText(unreadableLayoutPath, "{still-corrupted");
+                LayoutStore unreadableStore = new LayoutStore(unreadableRoot, Path.Combine(testRoot, "empty-managed-root"));
+                Assert(unreadableStore.Load().Count == 0 && unreadableStore.LoadFailed &&
+                    !unreadableStore.Save(new List<FenceModel>()) && File.ReadAllText(unreadableLayoutPath) == "{still-corrupted",
+                    "unreadable layout is never overwritten by empty defaults");
+
+                string settingsRoot = Path.Combine(testRoot, "settings-store");
+                AppSettingsStore settingsStoreTest = new AppSettingsStore(settingsRoot);
+                Assert(settingsStoreTest.Save(new AppSettingsModel { UiLanguage = "zh-TW" }) &&
+                    settingsStoreTest.Save(new AppSettingsModel { UiLanguage = "en-US" }), "atomic settings save");
+                File.WriteAllText(Path.Combine(settingsRoot, "settings.json"), "{corrupted");
+                AppSettingsStore settingsRecoveryStore = new AppSettingsStore(settingsRoot);
+                AppSettingsModel recoveredPreferences = settingsRecoveryStore.Load();
+                Assert(settingsRecoveryStore.RecoveredFromBackup && recoveredPreferences.UiLanguage == "zh-TW", "settings backup recovery");
+
+                string unreadableSettingsRoot = Path.Combine(testRoot, "unreadable-settings-store");
+                Directory.CreateDirectory(unreadableSettingsRoot);
+                string unreadableSettingsPath = Path.Combine(unreadableSettingsRoot, "settings.json");
+                File.WriteAllText(unreadableSettingsPath, "{still-corrupted");
+                AppSettingsStore unreadableSettingsStore = new AppSettingsStore(unreadableSettingsRoot);
+                Assert(unreadableSettingsStore.Load().SchemaVersion == AppSettingsModel.CurrentSchemaVersion && unreadableSettingsStore.LoadFailed &&
+                    !unreadableSettingsStore.Save(new AppSettingsModel()) && File.ReadAllText(unreadableSettingsPath) == "{still-corrupted",
+                    "unreadable settings are never overwritten by defaults");
                 Assert(StartupManager.BuildCommand(@"C:\Program Files\DeskBound\DeskBound.exe") ==
                     "\"C:\\Program Files\\DeskBound\\DeskBound.exe\"", "startup command quoting");
 
@@ -6786,7 +7104,7 @@ namespace DeskBound
                 Assert(AppearanceMath.SurfaceAlpha(0.20) == 51 && AppearanceMath.SurfaceAlpha(1.0) == 255 &&
                     AppearanceMath.OutlineBorderAlpha(0.20) < AppearanceMath.OutlineBorderAlpha(1.0), "opacity endpoints");
 
-                File.WriteAllText(report, "PASS\r\nmove-in: PASS\r\nsource-removal: PASS\r\nmove-out: PASS\r\nundo: PASS\r\nundo-persistence: PASS\r\ntab-persistence: PASS\r\nview-preference-persistence: PASS\r\ninbox-new-item-detection: PASS\r\ninbox-partial-download-guard: PASS\r\ninbox-file-folder-move: PASS\r\ninbox-undo: PASS\r\ninbox-history-rules-persistence: PASS\r\nautomatic-update-default: PASS\r\nsettings-schema-migration: PASS\r\nlanguage-migration-default: PASS\r\nEnglish-localization: PASS\r\nTraditional-Chinese-localization: PASS\r\norganizer-defaults: PASS\r\noutline-opacity-response: PASS\r\nopacity-endpoints: PASS\r\ncollision-no-overwrite: PASS\r\ncross-volume-fallback: PASS\r\nlayout-backup-recovery: PASS\r\nstartup-command: PASS\r\nupdate-version-parsing: PASS\r\nupdate-release-parsing: PASS\r\ncontent-integrity: PASS\r\n");
+                File.WriteAllText(report, "PASS\r\nmove-in: PASS\r\nsource-removal: PASS\r\nmove-out: PASS\r\nundo: PASS\r\nundo-persistence: PASS\r\ntab-persistence: PASS\r\nview-preference-persistence: PASS\r\ninbox-new-item-detection: PASS\r\ninbox-partial-download-guard: PASS\r\ninbox-file-folder-move: PASS\r\ninbox-undo: PASS\r\ninbox-history-rules-persistence: PASS\r\nautomatic-update-default: PASS\r\nsettings-schema-migration: PASS\r\nlanguage-migration-default: PASS\r\nEnglish-localization: PASS\r\nTraditional-Chinese-localization: PASS\r\norganizer-defaults: PASS\r\noutline-opacity-response: PASS\r\nopacity-endpoints: PASS\r\ncollision-no-overwrite: PASS\r\ncross-volume-fallback: PASS\r\nlayout-backup-recovery: PASS\r\nlayout-reduction-guard: PASS\r\nmanaged-folder-recovery: PASS\r\nunreadable-layout-protection: PASS\r\nsettings-backup-recovery: PASS\r\nunreadable-settings-protection: PASS\r\nstartup-command: PASS\r\nupdate-version-parsing: PASS\r\nupdate-release-parsing: PASS\r\ncontent-integrity: PASS\r\n");
                 return 0;
             }
             catch (Exception ex)
