@@ -40,7 +40,7 @@
 - 還有更多！
 
 <p align="center">
-  <img src="assets/screenshots/desktop-inbox.png" width="360" alt="桌面收件匣">
+  <img src="assets/screenshots/panel-tabs.png" width="460" alt="桌伴多分頁圍欄">
   &nbsp;&nbsp;
   <img src="assets/screenshots/updates-and-help.png" width="560" alt="使用說明與軟體更新">
 </p>

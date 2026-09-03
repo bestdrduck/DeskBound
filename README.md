@@ -40,7 +40,7 @@ DeskBound is a lightweight desktop organizer for Windows 10 and Windows 11. It g
 - And more!
 
 <p align="center">
-  <img src="assets/screenshots/desktop-inbox-en.png" width="360" alt="DeskBound Desktop Inbox">
+  <img src="assets/screenshots/panel-tabs-en.png" width="460" alt="DeskBound panel with tabs">
   &nbsp;&nbsp;
   <img src="assets/screenshots/help-en.png" width="560" alt="DeskBound help and updates">
 </p>
