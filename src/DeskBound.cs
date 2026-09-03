@@ -31,8 +31,8 @@ using MediaColors = System.Windows.Media.Colors;
 [assembly: AssemblyTitle("桌伴")]
 [assembly: AssemblyProduct("桌伴")]
 [assembly: AssemblyDescription("輕量、漂亮且支援動態桌布的 Windows 桌面圍欄")]
-[assembly: AssemblyVersion("0.15.2.0")]
-[assembly: AssemblyFileVersion("0.15.2.0")]
+[assembly: AssemblyVersion("0.15.3.0")]
+[assembly: AssemblyFileVersion("0.15.3.0")]
 
 namespace DeskBound
 {
@@ -136,6 +136,9 @@ namespace DeskBound
             { "自動化", "Automation" },
             { "控制啟動方式與桌面新項目的去向", "Control startup and where new desktop items go" },
             { "登入 Windows 時自動啟動桌伴", "Start DeskBound when I sign in to Windows" },
+            { "高優先啟動（登入後立即啟動）", "Early startup (immediately after sign-in)" },
+            { "使用登入排程提早啟動，不提高 CPU 或管理員權限。", "Start through a logon task without elevating CPU priority or administrator privileges." },
+            { "無法設定登入排程；原有開機啟動方式已保留。", "The logon task could not be configured. The previous startup method has been kept." },
             { "依檔案類型自動整理桌面新項目", "Automatically organize new desktop items by file type" },
             { "將桌面新出現的項目自動收入「桌面收件匣」", "Automatically collect new desktop items in Desktop Inbox" },
             { "目前的圍欄", "Your panels" },
@@ -437,6 +440,16 @@ namespace DeskBound
         [STAThread]
         private static void Main(string[] args)
         {
+            if (args != null && (args.Contains("--repair-startup") || args.Contains("--remove-startup")))
+            {
+                try
+                {
+                    if (args.Contains("--remove-startup")) StartupManager.RemoveForCurrentExecutable();
+                    else StartupManager.RepairForCurrentExecutable();
+                }
+                catch { Environment.ExitCode = 1; }
+                return;
+            }
             if (args != null && args.Length > 1 && string.Equals(args[0], "--restart-after", StringComparison.OrdinalIgnoreCase))
             {
                 int previousId;
@@ -1790,6 +1803,24 @@ namespace DeskBound
             return StartupManager.IsEnabled();
         }
 
+        public bool IsHighPriorityStartupEnabled() { return StartupManager.IsHighPriorityEnabled(); }
+
+        public bool SetHighPriorityStartup(bool enabled)
+        {
+            try
+            {
+                StartupManager.SetHighPriority(enabled);
+                if (autoStartTrayItem != null) autoStartTrayItem.IsChecked = StartupManager.IsEnabled();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                AppDialog.Show(I18n.T("無法設定登入排程；原有開機啟動方式已保留。") + "\n\n" + ex.Message,
+                    "無法更新開機啟動", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return false;
+            }
+        }
+
         public bool SetAutoStart(bool enabled)
         {
             try
@@ -2455,12 +2486,34 @@ namespace DeskBound
                 Foreground = new SolidColorBrush(MediaColor.FromArgb(195, 255, 255, 255)), FontSize = 12,
                 Margin = new Thickness(3, 0, 0, 11), Cursor = Cursors.Hand
             };
+            CheckBox earlyStart = new CheckBox
+            {
+                Content = I18n.T("高優先啟動（登入後立即啟動）"), IsChecked = manager.IsHighPriorityStartupEnabled(),
+                IsEnabled = autoStart.IsChecked == true,
+                Foreground = new SolidColorBrush(MediaColor.FromArgb(195, 255, 255, 255)), FontSize = 12,
+                Margin = new Thickness(22, 0, 0, 5), Cursor = Cursors.Hand
+            };
             autoStart.Click += delegate
             {
                 bool requested = autoStart.IsChecked == true;
                 if (!manager.SetAutoStart(requested)) autoStart.IsChecked = manager.IsAutoStartEnabled();
+                earlyStart.IsChecked = manager.IsHighPriorityStartupEnabled();
+                earlyStart.IsEnabled = autoStart.IsChecked == true;
             };
             automationBody.Children.Add(autoStart);
+            earlyStart.Click += delegate
+            {
+                manager.SetHighPriorityStartup(earlyStart.IsChecked == true);
+                earlyStart.IsChecked = manager.IsHighPriorityStartupEnabled();
+                autoStart.IsChecked = manager.IsAutoStartEnabled();
+            };
+            automationBody.Children.Add(earlyStart);
+            automationBody.Children.Add(new TextBlock
+            {
+                Text = I18n.T("使用登入排程提早啟動，不提高 CPU 或管理員權限。"),
+                Foreground = new SolidColorBrush(MediaColor.FromRgb(139, 157, 174)), FontSize = 11,
+                TextWrapping = TextWrapping.Wrap, Margin = new Thickness(22, 0, 0, 14)
+            });
 
             autoOrganizeCheck = new CheckBox
             {
@@ -5522,10 +5575,16 @@ namespace DeskBound
             StackPanel stack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
             System.Windows.Controls.Image icon = new System.Windows.Controls.Image
             {
-                Source = ShellIconCache.Get(path), Width = Math.Round(42 * scale), Height = Math.Round(42 * scale),
+                Width = Math.Round(42 * scale), Height = Math.Round(42 * scale),
                 Margin = new Thickness(0, 2, 0, 5), Stretch = Stretch.Uniform
             };
             RenderOptions.SetBitmapScalingMode(icon, BitmapScalingMode.HighQuality);
+            // Shell icon handlers can be slow at login; never block the panel's UI.
+            ShellIconCache.GetAsync(path).ContinueWith(task =>
+            {
+                if (!Dispatcher.HasShutdownStarted && task.Status == TaskStatus.RanToCompletion)
+                    icon.Source = task.Result;
+            }, TaskScheduler.FromCurrentSynchronizationContext());
             TextBlock label = new TextBlock
             {
                 Text = FriendlyName(path), Foreground = Brushes.White, FontSize = Math.Max(10.2, 11.5 * scale),
@@ -7103,6 +7162,25 @@ namespace DeskBound
                     "unreadable settings are never overwritten by defaults");
                 Assert(StartupManager.BuildCommand(@"C:\Program Files\DeskBound\DeskBound.exe") ==
                     "\"C:\\Program Files\\DeskBound\\DeskBound.exe\"", "startup command quoting");
+                string startupXml = StartupManager.BuildTaskXml(@"C:\Apps & Tools\桌伴.exe", "S-1-5-21-123-456-789-1001");
+                Assert(StartupManager.ReadTaskCommand(startupXml) == @"C:\Apps & Tools\桌伴.exe" &&
+                    startupXml.Contains("<RunLevel>LeastPrivilege</RunLevel>") && startupXml.Contains("<LogonType>InteractiveToken</LogonType>") &&
+                    startupXml.Contains("<Delay>PT0S</Delay>") && startupXml.Contains("<Priority>6</Priority>") &&
+                    startupXml.Contains("<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>"), "early startup task safety and quoting");
+                Assert(ShortcutResolver.NormalizeIconPath("C:/Riot Games/Riot Client/RiotClientServices.exe") ==
+                    @"C:\Riot Games\Riot Client\RiotClientServices.exe", "forward-slash icon path normalization");
+                string iconFixture = Path.Combine(testRoot, "launcher icon.ico");
+                Assert(ShellIconCache.Get(iconFixture) == null, "missing icon is not cached as a permanent failure");
+                using (FileStream stream = File.Create(iconFixture)) Drawing.SystemIcons.Application.Save(stream);
+                string urlFixture = Path.Combine(testRoot, "launcher.url");
+                File.WriteAllText(urlFixture, "[InternetShortcut]\r\nURL=https://example.invalid/\r\nIconFile=" +
+                    iconFixture.Replace('\\', '/') + "\r\nIconIndex=-42\r\n");
+                ShortcutResolver.IconLocation iconLocation = ShortcutResolver.ResolveIconLocation(urlFixture);
+                Assert(iconLocation.Path == iconFixture && iconLocation.Index == -42, "shortcut icon resource index retained");
+                Assert(ShellIconCache.Get(iconFixture) != null, "late icon file is retried and decoded");
+                Task<ImageSource> asyncIcon = ShellIconCache.GetAsync(urlFixture);
+                Assert(asyncIcon.Wait(5000) && asyncIcon.Result != null && asyncIcon.Result.IsFrozen,
+                    "background STA icon loading returns frozen image");
 
                 Version parsedUpdateVersion;
                 Assert(UpdateService.TryParseVersion("v0.13.0", out parsedUpdateVersion) && parsedUpdateVersion == new Version(0, 13, 0),
@@ -7127,6 +7205,7 @@ namespace DeskBound
                     AppearanceMath.OutlineBorderAlpha(0.20) < AppearanceMath.OutlineBorderAlpha(1.0), "opacity endpoints");
 
                 File.WriteAllText(report, "PASS\r\nmove-in: PASS\r\nsource-removal: PASS\r\nmove-out: PASS\r\nundo: PASS\r\nundo-persistence: PASS\r\ntab-persistence: PASS\r\nview-preference-persistence: PASS\r\ninbox-new-item-detection: PASS\r\ninbox-partial-download-guard: PASS\r\ninbox-file-folder-move: PASS\r\ninbox-undo: PASS\r\ninbox-history-rules-persistence: PASS\r\nautomatic-update-default: PASS\r\nsettings-schema-migration: PASS\r\nlanguage-migration-default: PASS\r\nEnglish-localization: PASS\r\nTraditional-Chinese-localization: PASS\r\norganizer-defaults: PASS\r\noutline-opacity-response: PASS\r\nopacity-endpoints: PASS\r\ncollision-no-overwrite: PASS\r\ncross-volume-fallback: PASS\r\nlayout-backup-recovery: PASS\r\nlayout-reduction-guard: PASS\r\nmanaged-folder-recovery: PASS\r\nunreadable-layout-protection: PASS\r\nsettings-backup-recovery: PASS\r\nunreadable-settings-protection: PASS\r\nstartup-command: PASS\r\nupdate-version-parsing: PASS\r\nupdate-release-parsing: PASS\r\ncontent-integrity: PASS\r\n");
+                File.AppendAllText(report, "early-startup-task: PASS\r\nicon-path-normalization: PASS\r\nicon-index: PASS\r\nlate-icon-retry: PASS\r\nbackground-icons: PASS\r\n");
                 return 0;
             }
             catch (Exception ex)
@@ -7410,6 +7489,9 @@ namespace DeskBound
     {
         private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
         private const string ValueName = "DeskBound";
+        private static string ExecutablePath { get { return Assembly.GetExecutingAssembly().Location; } }
+        private static string UserSid { get { return System.Security.Principal.WindowsIdentity.GetCurrent().User.Value; } }
+        internal static string TaskName { get { return "DeskBound-Logon-" + UserSid; } }
 
         public static string BuildCommand(string executablePath)
         {
@@ -7418,28 +7500,170 @@ namespace DeskBound
 
         public static bool IsEnabled()
         {
+            return IsHighPriorityEnabled() || string.Equals(ReadRunCommand(), BuildCommand(ExecutablePath), StringComparison.OrdinalIgnoreCase);
+        }
+
+        public static bool IsHighPriorityEnabled()
+        {
             try
             {
-                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(RunKey))
-                {
-                    string current = key == null ? null : key.GetValue(ValueName) as string;
-                    string expected = BuildCommand(Assembly.GetExecutingAssembly().Location);
-                    return string.Equals(current, expected, StringComparison.OrdinalIgnoreCase);
-                }
+                string xml = ReadTaskXml();
+                return IsTaskEnabled(xml) && string.Equals(ReadTaskCommand(xml), ExecutablePath, StringComparison.OrdinalIgnoreCase);
             }
             catch { return false; }
         }
 
         public static void SetEnabled(bool enabled)
         {
+            if (enabled)
+            {
+                if (!IsHighPriorityEnabled()) WriteRunCommand(BuildCommand(ExecutablePath));
+                return;
+            }
+            // Do not report disabled while a logon task is still enabled.
+            DeleteTask();
+            WriteRunCommand(null);
+        }
+
+        public static void SetHighPriority(bool enabled)
+        {
+            if (enabled)
+            {
+                // Register and verify the replacement before removing normal startup.
+                RegisterTask(ExecutablePath);
+                if (!IsHighPriorityEnabled()) throw new IOException("Windows did not enable the DeskBound logon task.");
+                WriteRunCommand(null);
+            }
+            else
+            {
+                string previousRun = ReadRunCommand();
+                WriteRunCommand(BuildCommand(ExecutablePath));
+                try { DeleteTask(); }
+                catch { WriteRunCommand(previousRun); throw; }
+            }
+        }
+
+        public static void RepairForCurrentExecutable()
+        {
+            string xml = ReadTaskXml();
+            if (IsTaskEnabled(xml))
+            {
+                RegisterTask(ExecutablePath);
+                WriteRunCommand(null);
+            }
+            else if (!string.IsNullOrWhiteSpace(ReadRunCommand())) WriteRunCommand(BuildCommand(ExecutablePath));
+        }
+
+        public static void RemoveForCurrentExecutable()
+        {
+            if (string.Equals(ReadTaskCommand(ReadTaskXml()), ExecutablePath, StringComparison.OrdinalIgnoreCase)) DeleteTask();
+            if (string.Equals(ReadRunCommand(), BuildCommand(ExecutablePath), StringComparison.OrdinalIgnoreCase)) WriteRunCommand(null);
+        }
+
+        private static string ReadRunCommand()
+        {
+            using (RegistryKey key = Registry.CurrentUser.OpenSubKey(RunKey))
+                return key == null ? null : key.GetValue(ValueName) as string;
+        }
+
+        private static void WriteRunCommand(string command)
+        {
             using (RegistryKey key = Registry.CurrentUser.CreateSubKey(RunKey))
             {
                 if (key == null) throw new IOException("無法開啟 Windows 啟動設定。");
-                if (enabled)
-                    key.SetValue(ValueName, BuildCommand(Assembly.GetExecutingAssembly().Location), RegistryValueKind.String);
-                else
-                    key.DeleteValue(ValueName, false);
+                if (command != null) key.SetValue(ValueName, command, RegistryValueKind.String);
+                else key.DeleteValue(ValueName, false);
             }
+        }
+
+        internal static string BuildTaskXml(string executablePath, string userSid)
+        {
+            string exe = System.Security.SecurityElement.Escape(executablePath);
+            string folder = System.Security.SecurityElement.Escape(Path.GetDirectoryName(executablePath));
+            string sid = System.Security.SecurityElement.Escape(userSid);
+            return "<?xml version=\"1.0\" encoding=\"UTF-16\"?>" +
+                "<Task version=\"1.2\" xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\">" +
+                "<RegistrationInfo><Description>Start DeskBound at user logon without Explorer startup delay.</Description></RegistrationInfo>" +
+                "<Triggers><LogonTrigger><Enabled>true</Enabled><UserId>" + sid + "</UserId><Delay>PT0S</Delay></LogonTrigger></Triggers>" +
+                "<Principals><Principal id=\"DeskBoundUser\"><UserId>" + sid + "</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>" +
+                "<Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>" +
+                "<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><AllowHardTerminate>false</AllowHardTerminate><StartWhenAvailable>true</StartWhenAvailable>" +
+                "<RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable><AllowStartOnDemand>true</AllowStartOnDemand><Enabled>true</Enabled>" +
+                "<Hidden>false</Hidden><RunOnlyIfIdle>false</RunOnlyIfIdle><WakeToRun>false</WakeToRun><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><Priority>6</Priority></Settings>" +
+                "<Actions Context=\"DeskBoundUser\"><Exec><Command>" + exe + "</Command><WorkingDirectory>" + folder + "</WorkingDirectory></Exec></Actions></Task>";
+        }
+
+        internal static string ReadTaskCommand(string xml)
+        {
+            return ReadTaskValue(xml, "/t:Task/t:Actions/t:Exec/t:Command");
+        }
+
+        private static bool IsTaskEnabled(string xml)
+        {
+            return !string.IsNullOrWhiteSpace(xml) &&
+                !string.Equals(ReadTaskValue(xml, "/t:Task/t:Settings/t:Enabled"), "false", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string ReadTaskValue(string xml, string xpath)
+        {
+            if (string.IsNullOrWhiteSpace(xml)) return null;
+            var document = new System.Xml.XmlDocument { XmlResolver = null };
+            document.LoadXml(xml);
+            var namespaces = new System.Xml.XmlNamespaceManager(document.NameTable);
+            namespaces.AddNamespace("t", "http://schemas.microsoft.com/windows/2004/02/mit/task");
+            var node = document.SelectSingleNode(xpath, namespaces);
+            return node == null ? null : node.InnerText;
+        }
+
+        private static string ReadTaskXml()
+        {
+            object service = null, folder = null, task = null;
+            try
+            {
+                service = Activator.CreateInstance(Type.GetTypeFromProgID("Schedule.Service"));
+                ((dynamic)service).Connect();
+                folder = ((dynamic)service).GetFolder("\\");
+                task = ((dynamic)folder).GetTask(TaskName);
+                return (string)((dynamic)task).Xml;
+            }
+            catch (COMException ex)
+            {
+                if (ex.ErrorCode == unchecked((int)0x80070002) || ex.ErrorCode == unchecked((int)0x8004130F)) return null;
+                throw;
+            }
+            finally { ReleaseCom(task); ReleaseCom(folder); ReleaseCom(service); }
+        }
+
+        private static void RegisterTask(string executablePath)
+        {
+            object service = null, folder = null, task = null;
+            try
+            {
+                service = Activator.CreateInstance(Type.GetTypeFromProgID("Schedule.Service"));
+                ((dynamic)service).Connect();
+                folder = ((dynamic)service).GetFolder("\\");
+                task = ((dynamic)folder).RegisterTask(TaskName, BuildTaskXml(executablePath, UserSid), 6, UserSid, null, 3, null);
+            }
+            finally { ReleaseCom(task); ReleaseCom(folder); ReleaseCom(service); }
+        }
+
+        private static void DeleteTask()
+        {
+            if (ReadTaskXml() == null) return;
+            object service = null, folder = null;
+            try
+            {
+                service = Activator.CreateInstance(Type.GetTypeFromProgID("Schedule.Service"));
+                ((dynamic)service).Connect();
+                folder = ((dynamic)service).GetFolder("\\");
+                ((dynamic)folder).DeleteTask(TaskName, 0);
+            }
+            finally { ReleaseCom(folder); ReleaseCom(service); }
+        }
+
+        private static void ReleaseCom(object value)
+        {
+            if (value != null && Marshal.IsComObject(value)) Marshal.FinalReleaseComObject(value);
         }
     }
 
@@ -8048,22 +8272,46 @@ namespace DeskBound
     {
         public static string ResolveIconSource(string path)
         {
-            if (string.IsNullOrEmpty(path)) return path;
+            return ResolveIconLocation(path).Path;
+        }
+
+        internal sealed class IconLocation
+        {
+            public string Path;
+            public int Index;
+        }
+
+        internal static string NormalizeIconPath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return path;
+            string expanded = Environment.ExpandEnvironmentVariables(path.Trim().Trim('"')).Replace('/', '\\');
+            try { return System.IO.Path.GetFullPath(expanded); }
+            catch { return expanded; }
+        }
+
+        internal static IconLocation ResolveIconLocation(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return new IconLocation { Path = path };
             if (string.Equals(Path.GetExtension(path), ".url", StringComparison.OrdinalIgnoreCase))
             {
                 try
                 {
+                    string iconPath = null;
+                    int index = 0;
                     foreach (string line in File.ReadAllLines(path))
                     {
-                        if (!line.StartsWith("IconFile=", StringComparison.OrdinalIgnoreCase)) continue;
-                        string iconPath = Environment.ExpandEnvironmentVariables(line.Substring("IconFile=".Length).Trim().Trim('"'));
-                        if (File.Exists(iconPath)) return iconPath;
+                        if (line.StartsWith("IconFile=", StringComparison.OrdinalIgnoreCase))
+                            iconPath = NormalizeIconPath(line.Substring("IconFile=".Length));
+                        if (line.StartsWith("IconIndex=", StringComparison.OrdinalIgnoreCase))
+                            int.TryParse(line.Substring("IconIndex=".Length).Trim(), out index);
                     }
+                    if (File.Exists(iconPath)) return new IconLocation { Path = iconPath, Index = index };
                 }
                 catch { }
-                return path;
+                return new IconLocation { Path = NormalizeIconPath(path) };
             }
-            if (!string.Equals(Path.GetExtension(path), ".lnk", StringComparison.OrdinalIgnoreCase)) return path;
+            if (!string.Equals(Path.GetExtension(path), ".lnk", StringComparison.OrdinalIgnoreCase))
+                return new IconLocation { Path = NormalizeIconPath(path) };
 
             object shellLink = null;
             try
@@ -8073,15 +8321,16 @@ namespace DeskBound
                 StringBuilder iconLocation = new StringBuilder(1024);
                 int iconIndex;
                 ((IShellLinkW)shellLink).GetIconLocation(iconLocation, iconLocation.Capacity, out iconIndex);
-                string iconPath = Environment.ExpandEnvironmentVariables(iconLocation.ToString().Trim().Trim('"'));
-                if (!string.IsNullOrWhiteSpace(iconPath) && File.Exists(iconPath)) return iconPath;
+                string iconPath = NormalizeIconPath(iconLocation.ToString());
+                if (!string.IsNullOrWhiteSpace(iconPath) && File.Exists(iconPath))
+                    return new IconLocation { Path = iconPath, Index = iconIndex };
             }
             catch { }
             finally
             {
                 if (shellLink != null && Marshal.IsComObject(shellLink)) Marshal.FinalReleaseComObject(shellLink);
             }
-            return ResolveTarget(path);
+            return new IconLocation { Path = NormalizeIconPath(ResolveTarget(path)) };
         }
 
         public static string ResolveTarget(string path)
@@ -8110,7 +8359,7 @@ namespace DeskBound
                 file.Load(path, 0);
                 StringBuilder target = new StringBuilder(1024);
                 ((IShellLinkW)shellLink).GetPath(target, target.Capacity, IntPtr.Zero, 0);
-                string resolved = target.ToString();
+                string resolved = NormalizeIconPath(target.ToString());
                 if (!string.IsNullOrWhiteSpace(resolved) && (File.Exists(resolved) || Directory.Exists(resolved))) return resolved;
             }
             catch { }
@@ -8147,28 +8396,65 @@ namespace DeskBound
     internal static class ShellIconCache
     {
         private static readonly Dictionary<string, ImageSource> cache = new Dictionary<string, ImageSource>(StringComparer.OrdinalIgnoreCase);
+        private static readonly object cacheLock = new object();
+        private static readonly System.Collections.Concurrent.BlockingCollection<Action> iconQueue = new System.Collections.Concurrent.BlockingCollection<Action>();
+        private static Thread iconThread;
+
+        public static Task<ImageSource> GetAsync(string path)
+        {
+            var completion = new TaskCompletionSource<ImageSource>();
+            lock (cacheLock)
+            {
+                if (iconThread == null)
+                {
+                    iconThread = new Thread(delegate()
+                    {
+                        foreach (Action action in iconQueue.GetConsumingEnumerable()) action();
+                    }) { IsBackground = true, Name = "DeskBound icons" };
+                    iconThread.SetApartmentState(ApartmentState.STA);
+                    iconThread.Start();
+                }
+            }
+            iconQueue.Add(delegate
+            {
+                try { completion.SetResult(Get(path)); }
+                catch { completion.SetResult(null); }
+            });
+            return completion.Task;
+        }
 
         public static ImageSource Get(string path)
         {
+            if (string.IsNullOrWhiteSpace(path)) return null;
+            ShortcutResolver.IconLocation location = ShortcutResolver.ResolveIconLocation(path);
+            string iconSourcePath = location.Path;
+            string key = path + "|" + File.GetLastWriteTimeUtc(path).Ticks + "|" + iconSourcePath + "|" +
+                location.Index + "|" + File.GetLastWriteTimeUtc(iconSourcePath).Ticks;
             ImageSource source;
-            if (cache.TryGetValue(path, out source)) return source;
+            lock (cacheLock) { if (cache.TryGetValue(key, out source)) return source; }
             source = TryGetThumbnail(path);
+            if (source == null) source = TryReadIconFile(iconSourcePath);
+            if (source == null && (string.Equals(Path.GetExtension(path), ".lnk", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(Path.GetExtension(path), ".url", StringComparison.OrdinalIgnoreCase)))
+                source = TryExtractIcon(iconSourcePath, location.Index);
+            if (source == null) source = TryGetHighResolutionIcon(iconSourcePath);
+            if (source == null) source = TryGetShellIcon(iconSourcePath);
+            if (source == null && !string.Equals(path, iconSourcePath, StringComparison.OrdinalIgnoreCase))
+                source = TryGetShellIcon(NormalizeShellPath(path));
+            // A failed lookup is not permanent: game launchers may still be updating
+            // their icon files at login. Retry on the next refresh.
             if (source != null)
-            {
-                if (cache.Count > 800) cache.Clear();
-                cache[path] = source;
-                return source;
-            }
-            string iconSourcePath = ShortcutResolver.ResolveIconSource(path);
-            source = TryGetHighResolutionIcon(iconSourcePath);
-            if (source != null)
-            {
-                if (cache.Count > 800) cache.Clear();
-                cache[path] = source;
-                return source;
-            }
+                lock (cacheLock) { if (cache.Count > 800) cache.Clear(); cache[key] = source; }
+            return source;
+        }
+
+        private static string NormalizeShellPath(string path) { return ShortcutResolver.NormalizeIconPath(path); }
+
+        private static ImageSource TryGetShellIcon(string path)
+        {
+            ImageSource source = null;
             NativeMethods.SHFILEINFO info = new NativeMethods.SHFILEINFO();
-            IntPtr result = NativeMethods.SHGetFileInfo(iconSourcePath, 0, ref info, (uint)Marshal.SizeOf(info), NativeMethods.SHGFI_ICON | NativeMethods.SHGFI_LARGEICON);
+            IntPtr result = NativeMethods.SHGetFileInfo(path, 0, ref info, (uint)Marshal.SizeOf(info), NativeMethods.SHGFI_ICON | NativeMethods.SHGFI_LARGEICON);
             if (result != IntPtr.Zero && info.hIcon != IntPtr.Zero)
             {
                 try
@@ -8179,10 +8465,44 @@ namespace DeskBound
                 }
                 finally { NativeMethods.DestroyIcon(info.hIcon); }
             }
-            else source = null;
-            if (cache.Count > 800) cache.Clear();
-            cache[path] = source;
             return source;
+        }
+
+        private static ImageSource TryReadIconFile(string path)
+        {
+            if (!string.Equals(Path.GetExtension(path), ".ico", StringComparison.OrdinalIgnoreCase)) return null;
+            try
+            {
+                using (FileStream stream = File.OpenRead(path))
+                {
+                    IconBitmapDecoder decoder = new IconBitmapDecoder(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+                    BitmapFrame frame = decoder.Frames.OrderByDescending(item => Math.Min(item.PixelWidth, 128))
+                        .ThenByDescending(item => item.Format.BitsPerPixel).FirstOrDefault();
+                    if (frame != null) frame.Freeze();
+                    return frame;
+                }
+            }
+            catch { return null; }
+        }
+
+        private static ImageSource TryExtractIcon(string path, int index)
+        {
+            if (!File.Exists(path)) return null;
+            IntPtr large = IntPtr.Zero, small = IntPtr.Zero;
+            try
+            {
+                if (NativeMethods.SHDefExtractIcon(path, index, 0, out large, out small, 96 | (32u << 16)) != 0 || large == IntPtr.Zero)
+                    return null;
+                BitmapSource bitmap = Imaging.CreateBitmapSourceFromHIcon(large, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+                bitmap.Freeze();
+                return bitmap;
+            }
+            catch { return null; }
+            finally
+            {
+                if (large != IntPtr.Zero) NativeMethods.DestroyIcon(large);
+                if (small != IntPtr.Zero) NativeMethods.DestroyIcon(small);
+            }
         }
 
         private static ImageSource TryGetThumbnail(string path)
@@ -8527,6 +8847,8 @@ namespace DeskBound
         [DllImport("user32.dll", SetLastError = true)] private static extern bool SetProcessDpiAwarenessContext(IntPtr value);
         [DllImport("shell32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr SHGetFileInfo(string path, uint attrs, ref SHFILEINFO info, uint size, uint flags);
         [DllImport("shell32.dll", CharSet = CharSet.Unicode)] public static extern void SHChangeNotify(uint eventId, uint flags, string item1, string item2);
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode, EntryPoint = "SHDefExtractIconW")]
+        public static extern int SHDefExtractIcon(string path, int index, uint flags, out IntPtr large, out IntPtr small, uint size);
         [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = true)] public static extern int SHCreateItemFromParsingName(string path, IntPtr bindContext, ref Guid iid, [MarshalAs(UnmanagedType.Interface)] out object shellItem);
         [DllImport("user32.dll")] public static extern bool DestroyIcon(IntPtr icon);
         [DllImport("gdi32.dll")] public static extern bool DeleteObject(IntPtr handle);

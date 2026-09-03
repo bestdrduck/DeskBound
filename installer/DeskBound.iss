@@ -1,6 +1,6 @@
 #define MyAppName "桌伴"
 #ifndef MyAppVersion
-#define MyAppVersion "0.15.2"
+#define MyAppVersion "0.15.3"
 #endif
 #define MyAppPublisher "DeskBound"
 #define MyAppExeName "桌伴.exe"
@@ -50,4 +50,8 @@ Name: "{group}\解除安裝 {#MyAppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--repair-startup"; Flags: runhidden waituntilterminated
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall
+
+[UninstallRun]
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--remove-startup"; Flags: runhidden waituntilterminated skipifdoesntexist; RunOnceId: "RemoveDeskBoundStartup"

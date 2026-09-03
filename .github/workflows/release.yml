@@ -39,7 +39,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          $notesPath = "docs/releases/${{ github.ref_name }}.md"
+          $notesArgs = if (Test-Path -LiteralPath $notesPath) { @('--notes-file', $notesPath) } else { @('--generate-notes') }
           gh release create "${{ github.ref_name }}" `
             "outputs/DeskBound-Setup.exe" `
             --title "桌伴 ${{ github.ref_name }}" `
-            --generate-notes
+            @notesArgs
+          if ($LASTEXITCODE -ne 0) { throw "Release publication failed." }
