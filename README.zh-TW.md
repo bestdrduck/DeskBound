@@ -47,11 +47,11 @@
 
 ## 安裝與更新
 
-請從 [GitHub Releases](https://github.com/bestdrduck/DeskBound/releases/latest) 下載 `DeskBound-Setup.exe`。第一次安裝可以自訂位置，日後升級會沿用同一位置。首次啟動保持空白，也不會擅自移動原本的桌面項目。
+請從 [GitHub Releases](https://github.com/bestdrduck/DeskBound/releases/latest) 下載 `DeskBound-Setup.exe`。第一次安裝可以自訂位置並建立桌面捷徑，日後升級會沿用同一位置。首次啟動保持空白，也不會擅自移動原本的桌面項目。
 
 桌伴目前尚未加入程式碼簽章，因此第一次安裝時 Windows SmartScreen 可能會顯示提醒。
 
-從 0.14.0 起，桌伴會下載正式安裝檔，在 GitHub 提供 SHA-256 摘要時先核對內容，再交由 Setup 完成升級。使用舊版 0.13 免安裝檔的使用者，需要先手動執行一次 Setup，之後便能使用新的更新流程。
+桌伴會在啟動時及持續執行期間每六小時檢查更新，下載正式安裝檔並核對 SHA-256 摘要，經使用者確認後在目前的程式位置完成升級。使用舊版 0.13 免安裝檔的使用者，需要先手動執行一次 Setup，之後便能使用新的更新流程。
 
 ## 資料獨立保存
 

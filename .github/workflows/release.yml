@@ -20,6 +20,18 @@ jobs:
         run: |
           .\build.ps1
 
+      - name: Run storage and update self-tests
+        shell: pwsh
+        run: |
+          $process = Start-Process ".\outputs\桌伴.exe" -ArgumentList "--storage-self-test" -PassThru -Wait
+          if ($process.ExitCode -ne 0) {
+            if (Test-Path ".\work\DeskBound-storage-self-test.txt") {
+              Get-Content ".\work\DeskBound-storage-self-test.txt"
+            }
+            throw "DeskBound self-tests failed with exit code $($process.ExitCode)."
+          }
+          Get-Content ".\work\DeskBound-storage-self-test.txt"
+
       - name: Build installer
         shell: pwsh
         run: |

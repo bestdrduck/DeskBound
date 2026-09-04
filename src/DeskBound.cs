@@ -31,8 +31,8 @@ using MediaColors = System.Windows.Media.Colors;
 [assembly: AssemblyTitle("桌伴")]
 [assembly: AssemblyProduct("桌伴")]
 [assembly: AssemblyDescription("輕量、漂亮且支援動態桌布的 Windows 桌面圍欄")]
-[assembly: AssemblyVersion("0.15.3.0")]
-[assembly: AssemblyFileVersion("0.15.3.0")]
+[assembly: AssemblyVersion("0.15.4.0")]
+[assembly: AssemblyFileVersion("0.15.4.0")]
 
 namespace DeskBound
 {
@@ -222,7 +222,8 @@ namespace DeskBound
             { "桌伴使用獨立透明桌面視窗，不建立全螢幕遮罩。若動態桌布效能較吃緊，可到「外觀與排列」開啟動態桌布最佳化。", "DeskBound uses independent transparent desktop windows rather than a full-screen overlay. If an animated wallpaper is demanding, enable animated wallpaper optimization under Appearance." },
             { "刪除圍欄或分頁只會移除版面入口，不會刪除資料。發生同名檔案時會自動改名而不是覆蓋；版面設定也會保留上一版備份。", "Deleting a panel or tab only removes its layout entry; it never deletes data. Name collisions are renamed instead of overwritten, and the previous layout is kept as a backup." },
             { "軟體更新", "Software updates" },
-            { "啟動時自動檢查更新", "Automatically check for updates at startup" },
+            { "自動檢查更新", "Automatically check for updates" },
+            { "啟動時及執行期間定期檢查；找到新版後會先詢問，不會強制安裝。", "Check at startup and periodically while running. DeskBound asks before installing an update." },
             { "檢查更新", "Check for updates" },
             { "開始使用", "Getting started" },
             { "圍欄分頁", "Panel tabs" },
@@ -538,6 +539,7 @@ namespace DeskBound
         private readonly DispatcherTimer desktopTimer;
         private readonly DispatcherTimer organizerTimer;
         private readonly DispatcherTimer desktopInboxDebounceTimer;
+        private readonly DispatcherTimer updateTimer;
         private readonly AppSettingsStore settingsStore;
         private readonly AppSettingsModel settings;
         private Forms.NotifyIcon tray;
@@ -553,6 +555,7 @@ namespace DeskBound
         private bool checkingForUpdates;
         private bool downloadingUpdate;
         private string updateStatus = "尚未檢查更新";
+        private DateTime? lastUpdateAttemptUtc;
         private bool visible = true;
         private bool peeking;
         private bool visibleBeforePeek = true;
@@ -592,6 +595,11 @@ namespace DeskBound
                 desktopInboxDebounceTimer.Stop();
                 CollectDesktopInbox(false);
             };
+            updateTimer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(30) };
+            updateTimer.Tick += delegate
+            {
+                if (settings.AutoCheckUpdates && ShouldAutomaticallyCheckForUpdates()) CheckForUpdates(false);
+            };
         }
 
         public void Start()
@@ -615,6 +623,7 @@ namespace DeskBound
             if (!PreviewMode)
             {
                 UpdateService.CleanupStaleDownloads();
+                updateTimer.Start();
                 if (settings.AutoCheckUpdates && ShouldAutomaticallyCheckForUpdates())
                     app.Dispatcher.BeginInvoke(new Action(delegate { CheckForUpdates(false); }));
             }
@@ -693,6 +702,8 @@ namespace DeskBound
 
         private bool ShouldAutomaticallyCheckForUpdates()
         {
+            if (checkingForUpdates || downloadingUpdate || pendingUpdate != null) return false;
+            if (lastUpdateAttemptUtc.HasValue && DateTime.UtcNow - lastUpdateAttemptUtc.Value < TimeSpan.FromMinutes(15)) return false;
             if (!settings.LastUpdateCheckUtc.HasValue) return true;
             return DateTime.UtcNow - settings.LastUpdateCheckUtc.Value > TimeSpan.FromHours(6);
         }
@@ -757,6 +768,7 @@ namespace DeskBound
             }
 
             checkingForUpdates = true;
+            lastUpdateAttemptUtc = DateTime.UtcNow;
             updateStatus = "正在檢查 GitHub 最新版本…";
             NotifyUpdateUi();
             Task.Factory.StartNew<UpdateRelease>(delegate { return UpdateService.GetLatestRelease(); }).ContinueWith(delegate(Task<UpdateRelease> task)
@@ -764,8 +776,6 @@ namespace DeskBound
                 app.Dispatcher.BeginInvoke(new Action(delegate
                 {
                     checkingForUpdates = false;
-                    settings.LastUpdateCheckUtc = DateTime.UtcNow;
-                    settingsStore.Save(settings);
                     if (task.IsFaulted)
                     {
                         Exception error = task.Exception == null ? null : task.Exception.GetBaseException();
@@ -774,6 +784,9 @@ namespace DeskBound
                         if (interactive) AppDialog.Show(error == null ? "請稍後再試。" : error.Message, "無法檢查更新", MessageBoxButton.OK, MessageBoxImage.Warning);
                         return;
                     }
+
+                    settings.LastUpdateCheckUtc = DateTime.UtcNow;
+                    settingsStore.Save(settings);
 
                     UpdateRelease latest = task.Result;
                     Version current = Assembly.GetExecutingAssembly().GetName().Version;
@@ -831,7 +844,7 @@ namespace DeskBound
                         ProcessStartInfo start = new ProcessStartInfo(installer)
                         {
                             UseShellExecute = true,
-                            Arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS"
+                            Arguments = UpdateInstaller.BuildSetupArguments(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location))
                         };
                         Process.Start(start);
                         Exit();
@@ -1475,6 +1488,7 @@ namespace DeskBound
                     try
                     {
                         if (string.Equals(Path.GetFileName(path), "desktop.ini", StringComparison.OrdinalIgnoreCase)) continue;
+                        if (IsDeskBoundDesktopShortcut(path)) continue;
                         if (IsIncompleteDownloadPath(path)) continue;
                         FileAttributes attributes = File.GetAttributes(path);
                         if ((attributes & (FileAttributes.Hidden | FileAttributes.System)) != 0) continue;
@@ -1485,6 +1499,13 @@ namespace DeskBound
             }
             catch { }
             return result;
+        }
+
+        internal static bool IsDeskBoundDesktopShortcut(string path)
+        {
+            string name = Path.GetFileName(path ?? "");
+            return string.Equals(name, "桌伴.lnk", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "DeskBound.lnk", StringComparison.OrdinalIgnoreCase);
         }
 
         internal static bool IsIncompleteDownloadPath(string path)
@@ -1878,6 +1899,7 @@ namespace DeskBound
         {
             desktopTimer.Stop();
             organizerTimer.Stop();
+            updateTimer.Stop();
             desktopInboxDebounceTimer.Stop();
             saveTimer.Stop();
             if (desktopInboxWatcher != null)
@@ -3116,13 +3138,20 @@ namespace DeskBound
             copy.Children.Add(updateStatusText);
             autoUpdateCheck = new CheckBox
             {
-                Content = "啟動時自動檢查更新", IsChecked = manager.IsAutoCheckUpdatesEnabled(),
+                Content = I18n.T("自動檢查更新"), IsChecked = manager.IsAutoCheckUpdatesEnabled(),
                 Foreground = new SolidColorBrush(MediaColor.FromRgb(197, 210, 221)), FontSize = 11.5,
-                VerticalAlignment = VerticalAlignment.Center
+                VerticalAlignment = VerticalAlignment.Center,
+                ToolTip = I18n.T("啟動時及執行期間定期檢查；找到新版後會先詢問，不會強制安裝。")
             };
             autoUpdateCheck.Checked += delegate { manager.SetAutoCheckUpdatesEnabled(true); };
             autoUpdateCheck.Unchecked += delegate { manager.SetAutoCheckUpdatesEnabled(false); };
             copy.Children.Add(autoUpdateCheck);
+            copy.Children.Add(new TextBlock
+            {
+                Text = I18n.T("啟動時及執行期間定期檢查；找到新版後會先詢問，不會強制安裝。"),
+                Foreground = new SolidColorBrush(MediaColor.FromRgb(126, 148, 166)), FontSize = 10.5,
+                TextWrapping = TextWrapping.Wrap, Margin = new Thickness(22, 5, 16, 0)
+            });
             layout.Children.Add(copy);
 
             updateActionButton = new Button
@@ -6663,6 +6692,7 @@ namespace DeskBound
                     try
                     {
                         if (string.Equals(Path.GetFileName(path), "desktop.ini", StringComparison.OrdinalIgnoreCase)) continue;
+                        if (DeskBoundManager.IsDeskBoundDesktopShortcut(path)) continue;
                         FileAttributes attributes = File.GetAttributes(path);
                         if ((attributes & (FileAttributes.Hidden | FileAttributes.System)) != 0) continue;
                         string extension = Path.GetExtension(path).ToLowerInvariant();
@@ -7170,7 +7200,10 @@ namespace DeskBound
                 Assert(ShortcutResolver.NormalizeIconPath("C:/Riot Games/Riot Client/RiotClientServices.exe") ==
                     @"C:\Riot Games\Riot Client\RiotClientServices.exe", "forward-slash icon path normalization");
                 string iconFixture = Path.Combine(testRoot, "launcher icon.ico");
-                Assert(ShellIconCache.Get(iconFixture) == null, "missing icon is not cached as a permanent failure");
+                // Different Windows shell versions may return either null or a generic
+                // icon for a missing path. In both cases, creating the icon afterwards
+                // must yield the real image rather than preserving the earlier result.
+                ShellIconCache.Get(iconFixture);
                 using (FileStream stream = File.Create(iconFixture)) Drawing.SystemIcons.Application.Save(stream);
                 string urlFixture = Path.Combine(testRoot, "launcher.url");
                 File.WriteAllText(urlFixture, "[InternetShortcut]\r\nURL=https://example.invalid/\r\nIconFile=" +
@@ -7185,10 +7218,40 @@ namespace DeskBound
                 Version parsedUpdateVersion;
                 Assert(UpdateService.TryParseVersion("v0.13.0", out parsedUpdateVersion) && parsedUpdateVersion == new Version(0, 13, 0),
                     "update version parsing");
+                string setupArguments = UpdateInstaller.BuildSetupArguments(@"C:\Apps & Tools\DeskBound");
+                Assert(setupArguments.Contains("/DIR=\"C:\\Apps & Tools\\DeskBound\"") && setupArguments.Contains("/RESTARTAPPLICATIONS"),
+                    "portable update keeps current install directory");
+                Assert(DeskBoundManager.IsDeskBoundDesktopShortcut(@"C:\Users\Test\Desktop\桌伴.lnk") &&
+                    DeskBoundManager.IsDeskBoundDesktopShortcut(@"C:\Users\Test\Desktop\DeskBound.lnk") &&
+                    !DeskBoundManager.IsDeskBoundDesktopShortcut(@"C:\Users\Test\Desktop\Notes.lnk"), "desktop app shortcut exclusion");
                 string updateJson = "{\"tag_name\":\"v0.15.0\",\"html_url\":\"https://github.com/bestdrduck/DeskBound/releases/tag/v0.15.0\",\"assets\":[{\"name\":\"DeskBound-Setup.exe\",\"browser_download_url\":\"https://example.invalid/DeskBound-Setup.exe\",\"size\":376832,\"digest\":\"sha256:abc\"}]}";
                 UpdateRelease parsedRelease = UpdateService.ParseLatestRelease(updateJson);
                 Assert(parsedRelease.Version == new Version(0, 15, 0) && parsedRelease.DownloadUrl.EndsWith("DeskBound-Setup.exe") && parsedRelease.AssetSize == 376832,
                     "update release parsing");
+                string installerFixture = Path.Combine(testRoot, "published-setup.exe");
+                byte[] installerBytes = new byte[120000];
+                installerBytes[0] = (byte)'M'; installerBytes[1] = (byte)'Z';
+                for (int index = 2; index < installerBytes.Length; index++) installerBytes[index] = (byte)(index % 251);
+                File.WriteAllBytes(installerFixture, installerBytes);
+                string installerDigest;
+                using (SHA256 sha = SHA256.Create())
+                    installerDigest = BitConverter.ToString(sha.ComputeHash(installerBytes)).Replace("-", "").ToLowerInvariant();
+                string isolatedUpdateRoot = Path.Combine(testRoot, "updates");
+                UpdateRelease installerRelease = new UpdateRelease
+                {
+                    Version = new Version(9, 9, 9), DownloadUrl = new Uri(installerFixture).AbsoluteUri,
+                    AssetSize = installerBytes.Length, Digest = "sha256:" + installerDigest
+                };
+                string verifiedInstaller = UpdateService.DownloadRelease(installerRelease, isolatedUpdateRoot);
+                Assert(File.Exists(verifiedInstaller) && new FileInfo(verifiedInstaller).Length == installerBytes.Length,
+                    "isolated updater download and verification");
+                installerRelease.Version = new Version(9, 9, 8);
+                installerRelease.Digest = "sha256:" + new string('0', 64);
+                bool invalidDigestRejected = false;
+                try { UpdateService.DownloadRelease(installerRelease, isolatedUpdateRoot); }
+                catch (InvalidDataException) { invalidDigestRejected = true; }
+                Assert(invalidDigestRejected && !Directory.EnumerateFiles(isolatedUpdateRoot, "*.download").Any(),
+                    "invalid update digest rejection and cleanup");
                 AppSettingsModel migratedSettings = new AppSettingsModel { SchemaVersion = 0 };
                 Assert(AppSettingsStore.Migrate(migratedSettings, 0) && migratedSettings.SchemaVersion == AppSettingsModel.CurrentSchemaVersion,
                     "settings schema migration");
@@ -7205,7 +7268,7 @@ namespace DeskBound
                     AppearanceMath.OutlineBorderAlpha(0.20) < AppearanceMath.OutlineBorderAlpha(1.0), "opacity endpoints");
 
                 File.WriteAllText(report, "PASS\r\nmove-in: PASS\r\nsource-removal: PASS\r\nmove-out: PASS\r\nundo: PASS\r\nundo-persistence: PASS\r\ntab-persistence: PASS\r\nview-preference-persistence: PASS\r\ninbox-new-item-detection: PASS\r\ninbox-partial-download-guard: PASS\r\ninbox-file-folder-move: PASS\r\ninbox-undo: PASS\r\ninbox-history-rules-persistence: PASS\r\nautomatic-update-default: PASS\r\nsettings-schema-migration: PASS\r\nlanguage-migration-default: PASS\r\nEnglish-localization: PASS\r\nTraditional-Chinese-localization: PASS\r\norganizer-defaults: PASS\r\noutline-opacity-response: PASS\r\nopacity-endpoints: PASS\r\ncollision-no-overwrite: PASS\r\ncross-volume-fallback: PASS\r\nlayout-backup-recovery: PASS\r\nlayout-reduction-guard: PASS\r\nmanaged-folder-recovery: PASS\r\nunreadable-layout-protection: PASS\r\nsettings-backup-recovery: PASS\r\nunreadable-settings-protection: PASS\r\nstartup-command: PASS\r\nupdate-version-parsing: PASS\r\nupdate-release-parsing: PASS\r\ncontent-integrity: PASS\r\n");
-                File.AppendAllText(report, "early-startup-task: PASS\r\nicon-path-normalization: PASS\r\nicon-index: PASS\r\nlate-icon-retry: PASS\r\nbackground-icons: PASS\r\n");
+                File.AppendAllText(report, "early-startup-task: PASS\r\nicon-path-normalization: PASS\r\nicon-index: PASS\r\nlate-icon-retry: PASS\r\nbackground-icons: PASS\r\nportable-update-directory: PASS\r\ndesktop-shortcut-exclusion: PASS\r\nisolated-update-download: PASS\r\ninvalid-update-cleanup: PASS\r\n");
                 return 0;
             }
             catch (Exception ex)
@@ -7326,33 +7389,47 @@ namespace DeskBound
 
         public static string DownloadRelease(UpdateRelease release)
         {
+            return DownloadRelease(release, GetUpdateRoot());
+        }
+
+        internal static string DownloadRelease(UpdateRelease release, string root)
+        {
             if (release == null || string.IsNullOrWhiteSpace(release.DownloadUrl)) throw new ArgumentException("沒有可下載的更新檔案。");
-            string root = GetUpdateRoot();
+            if (string.IsNullOrWhiteSpace(root)) throw new ArgumentException("更新暫存位置不能是空白。", "root");
+            root = Path.GetFullPath(root);
             Directory.CreateDirectory(root);
             string safeVersion = release.Version == null ? "latest" : release.Version.ToString(3);
             string partial = Path.Combine(root, "DeskBound-Setup-" + safeVersion + ".download");
             string completed = Path.Combine(root, "DeskBound-Setup-" + safeVersion + ".exe");
             try { if (File.Exists(partial)) File.Delete(partial); } catch { }
 
-            ServicePointManager.SecurityProtocol |= (SecurityProtocolType)3072;
-            using (WebClient client = new WebClient())
+            try
             {
-                client.Headers[HttpRequestHeader.UserAgent] = "DeskBound/" + Assembly.GetExecutingAssembly().GetName().Version.ToString(3);
-                client.Headers[HttpRequestHeader.Accept] = "application/octet-stream";
-                client.DownloadFile(release.DownloadUrl, partial);
-            }
+                ServicePointManager.SecurityProtocol |= (SecurityProtocolType)3072;
+                using (WebClient client = new WebClient())
+                {
+                    client.Headers[HttpRequestHeader.UserAgent] = "DeskBound/" + Assembly.GetExecutingAssembly().GetName().Version.ToString(3);
+                    client.Headers[HttpRequestHeader.Accept] = "application/octet-stream";
+                    client.DownloadFile(release.DownloadUrl, partial);
+                }
 
-            FileInfo downloaded = new FileInfo(partial);
-            if (!downloaded.Exists || downloaded.Length < 100000) throw new InvalidDataException("下載的更新檔案不完整。");
-            if (release.AssetSize > 0 && downloaded.Length != release.AssetSize) throw new InvalidDataException("更新檔案大小與 GitHub 資料不符。");
-            using (FileStream stream = File.OpenRead(partial))
-            {
-                if (stream.ReadByte() != 'M' || stream.ReadByte() != 'Z') throw new InvalidDataException("下載內容不是有效的 Windows 程式。");
+                FileInfo downloaded = new FileInfo(partial);
+                if (!downloaded.Exists || downloaded.Length < 100000) throw new InvalidDataException("下載的更新檔案不完整。");
+                if (release.AssetSize > 0 && downloaded.Length != release.AssetSize) throw new InvalidDataException("更新檔案大小與 GitHub 資料不符。");
+                using (FileStream stream = File.OpenRead(partial))
+                {
+                    if (stream.ReadByte() != 'M' || stream.ReadByte() != 'Z') throw new InvalidDataException("下載內容不是有效的 Windows 程式。");
+                }
+                VerifyDigest(partial, release.Digest);
+                if (File.Exists(completed)) File.Delete(completed);
+                File.Move(partial, completed);
+                return completed;
             }
-            VerifyDigest(partial, release.Digest);
-            if (File.Exists(completed)) File.Delete(completed);
-            File.Move(partial, completed);
-            return completed;
+            catch
+            {
+                try { if (File.Exists(partial)) File.Delete(partial); } catch { }
+                throw;
+            }
         }
 
         internal static void VerifyDigest(string path, string digest)
@@ -7453,6 +7530,17 @@ namespace DeskBound
                 catch { }
                 return 1;
             }
+        }
+
+        internal static string BuildSetupArguments(string installDirectory)
+        {
+            if (string.IsNullOrWhiteSpace(installDirectory)) throw new ArgumentException("更新位置不能是空白。", "installDirectory");
+            string fullDirectory = Path.GetFullPath(installDirectory);
+            string trimmed = fullDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string root = Path.GetPathRoot(fullDirectory);
+            string directory = string.Equals(trimmed, (root ?? "").TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                StringComparison.OrdinalIgnoreCase) ? root : trimmed;
+            return "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS /DIR=" + Quote(directory);
         }
 
         private static string FileDigest(string path)
