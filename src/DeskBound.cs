@@ -31,8 +31,8 @@ using MediaColors = System.Windows.Media.Colors;
 [assembly: AssemblyTitle("桌伴")]
 [assembly: AssemblyProduct("桌伴")]
 [assembly: AssemblyDescription("輕量、漂亮且支援動態桌布的 Windows 桌面圍欄")]
-[assembly: AssemblyVersion("0.15.7.0")]
-[assembly: AssemblyFileVersion("0.15.7.0")]
+[assembly: AssemblyVersion("0.15.8.0")]
+[assembly: AssemblyFileVersion("0.15.8.0")]
 
 namespace DeskBound
 {
@@ -5112,13 +5112,12 @@ namespace DeskBound
 
             if (Model.IsDesktopInbox)
             {
-                // The inbox is intentionally recognizable even when the user uses the
-                // same appearance preset for every other fence.
-                shell.BorderBrush = new LinearGradientBrush(MediaColor.FromArgb(235, 87, 230, 190),
-                    MediaColor.FromArgb(180, 73, 161, 255), new System.Windows.Point(0, 0), new System.Windows.Point(1, 1));
-                shell.BorderThickness = new Thickness(2);
-                headerPanel.Background = new LinearGradientBrush(MediaColor.FromArgb(68, 65, 218, 174),
-                    MediaColor.FromArgb(28, 84, 159, 255), new System.Windows.Point(0, 0), new System.Windows.Point(1, 0));
+                // Keep the inbox recognizable without a colored bloom around the
+                // frame or a bright wash across its title bar.
+                shell.Effect = null;
+                shell.BorderBrush = new SolidColorBrush(MediaColor.FromArgb(175, 86, 205, 174));
+                shell.BorderThickness = new Thickness(1);
+                headerPanel.Background = Brushes.Transparent;
             }
 
             foreach (ToggleButton button in itemButtons.Values)
