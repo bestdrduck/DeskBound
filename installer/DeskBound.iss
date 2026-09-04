@@ -1,6 +1,6 @@
 #define MyAppName "桌伴"
 #ifndef MyAppVersion
-#define MyAppVersion "0.15.6"
+#define MyAppVersion "0.15.7"
 #endif
 #define MyAppPublisher "DeskBound"
 #define MyAppExeName "桌伴.exe"

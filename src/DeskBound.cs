@@ -31,8 +31,8 @@ using MediaColors = System.Windows.Media.Colors;
 [assembly: AssemblyTitle("桌伴")]
 [assembly: AssemblyProduct("桌伴")]
 [assembly: AssemblyDescription("輕量、漂亮且支援動態桌布的 Windows 桌面圍欄")]
-[assembly: AssemblyVersion("0.15.6.0")]
-[assembly: AssemblyFileVersion("0.15.6.0")]
+[assembly: AssemblyVersion("0.15.7.0")]
+[assembly: AssemblyFileVersion("0.15.7.0")]
 
 namespace DeskBound
 {
@@ -4273,10 +4273,8 @@ namespace DeskBound
             }
             inboxMonitorButton.ToolTip = I18n.T(enabled
                 ? "正在監看桌面；點一下暫停" : "桌面監看已暫停；點一下繼續");
-            inboxMonitorButton.Background = new SolidColorBrush(enabled
-                ? MediaColor.FromArgb(35, 66, 218, 174) : MediaColor.FromArgb(16, 255, 255, 255));
-            inboxMonitorButton.BorderBrush = new SolidColorBrush(enabled
-                ? MediaColor.FromArgb(75, 112, 245, 207) : MediaColor.FromArgb(34, 255, 255, 255));
+            inboxMonitorButton.Background = Brushes.Transparent;
+            inboxMonitorButton.BorderBrush = Brushes.Transparent;
             inboxMonitorButton.Foreground = new SolidColorBrush(enabled
                 ? MediaColor.FromRgb(211, 255, 241) : MediaColor.FromArgb(170, 255, 255, 255));
         }
