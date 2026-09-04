@@ -31,8 +31,8 @@ using MediaColors = System.Windows.Media.Colors;
 [assembly: AssemblyTitle("桌伴")]
 [assembly: AssemblyProduct("桌伴")]
 [assembly: AssemblyDescription("輕量、漂亮且支援動態桌布的 Windows 桌面圍欄")]
-[assembly: AssemblyVersion("0.15.5.0")]
-[assembly: AssemblyFileVersion("0.15.5.0")]
+[assembly: AssemblyVersion("0.15.6.0")]
+[assembly: AssemblyFileVersion("0.15.6.0")]
 
 namespace DeskBound
 {
@@ -295,6 +295,8 @@ namespace DeskBound
             { "新增分頁", "New tab" },
             { "搜尋項目（Ctrl+F）", "Search items (Ctrl+F)" },
             { "開啟或暫停桌面收件匣監看", "Start or pause Desktop Inbox monitoring" },
+            { "正在監看桌面；點一下暫停", "Watching the desktop; click to pause" },
+            { "桌面監看已暫停；點一下繼續", "Desktop monitoring is paused; click to resume" },
             { "●  監看中", "●  Watching" },
             { "○  已暫停", "○  Paused" },
             { "將項目拖曳到這裡", "Drag items here" },
@@ -4223,10 +4225,15 @@ namespace DeskBound
             {
                 inboxMonitorButton = new Button
                 {
-                    Height = 27, MinWidth = 76, Margin = new Thickness(2, 0, 4, 0), Padding = new Thickness(9, 0, 9, 0),
+                    Width = 27, Height = 27, Margin = new Thickness(2, 0, 4, 0), Padding = new Thickness(0),
                     Foreground = Brushes.White, BorderThickness = new Thickness(1), Cursor = Cursors.Hand,
-                    FontSize = 10.5, FontWeight = FontWeights.SemiBold, Style = UiStyles.GhostButton(10),
+                    FontSize = 10.5, FontWeight = FontWeights.SemiBold, Style = UiStyles.GhostButton(9),
                     ToolTip = "開啟或暫停桌面收件匣監看"
+                };
+                inboxMonitorButton.Content = new Border
+                {
+                    Width = 8, Height = 8, CornerRadius = new CornerRadius(4),
+                    BorderThickness = new Thickness(1)
                 };
                 inboxMonitorButton.Click += delegate
                 {
@@ -4256,11 +4263,20 @@ namespace DeskBound
         {
             if (!Model.IsDesktopInbox || inboxMonitorButton == null) return;
             bool enabled = manager.IsDesktopInboxEnabled();
-            inboxMonitorButton.Content = enabled ? "●  監看中" : "○  已暫停";
+            Border statusDot = inboxMonitorButton.Content as Border;
+            if (statusDot != null)
+            {
+                statusDot.Background = enabled
+                    ? new SolidColorBrush(MediaColor.FromRgb(111, 239, 195)) : Brushes.Transparent;
+                statusDot.BorderBrush = new SolidColorBrush(enabled
+                    ? MediaColor.FromRgb(173, 255, 226) : MediaColor.FromArgb(145, 255, 255, 255));
+            }
+            inboxMonitorButton.ToolTip = I18n.T(enabled
+                ? "正在監看桌面；點一下暫停" : "桌面監看已暫停；點一下繼續");
             inboxMonitorButton.Background = new SolidColorBrush(enabled
-                ? MediaColor.FromArgb(78, 66, 218, 174) : MediaColor.FromArgb(28, 255, 255, 255));
+                ? MediaColor.FromArgb(35, 66, 218, 174) : MediaColor.FromArgb(16, 255, 255, 255));
             inboxMonitorButton.BorderBrush = new SolidColorBrush(enabled
-                ? MediaColor.FromArgb(190, 112, 245, 207) : MediaColor.FromArgb(55, 255, 255, 255));
+                ? MediaColor.FromArgb(75, 112, 245, 207) : MediaColor.FromArgb(34, 255, 255, 255));
             inboxMonitorButton.Foreground = new SolidColorBrush(enabled
                 ? MediaColor.FromRgb(211, 255, 241) : MediaColor.FromArgb(170, 255, 255, 255));
         }
