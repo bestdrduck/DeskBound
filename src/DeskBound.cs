@@ -31,8 +31,8 @@ using MediaColors = System.Windows.Media.Colors;
 [assembly: AssemblyTitle("桌伴")]
 [assembly: AssemblyProduct("桌伴")]
 [assembly: AssemblyDescription("輕量、漂亮且支援動態桌布的 Windows 桌面圍欄")]
-[assembly: AssemblyVersion("0.15.4.0")]
-[assembly: AssemblyFileVersion("0.15.4.0")]
+[assembly: AssemblyVersion("0.15.5.0")]
+[assembly: AssemblyFileVersion("0.15.5.0")]
 
 namespace DeskBound
 {
@@ -183,6 +183,11 @@ namespace DeskBound
             { "隱藏圍欄名稱", "Hide panel name" },
             { "圖示大小", "Icon size" },
             { "調整圍欄內容的密度", "Adjust the density of panel contents" },
+            { "檢視方式", "View mode" },
+            { "圖示格狀", "Icon grid" },
+            { "精簡清單", "Compact list" },
+            { "檔案", "File" },
+            { "大量項目可改用清單；每個分頁會記住自己的選擇", "Use a list for larger collections; every tab remembers its own choice" },
             { "小", "Small" },
             { "中", "Medium" },
             { "大", "Large" },
@@ -500,6 +505,7 @@ namespace DeskBound
                 bool captureInbox = args != null && args.Any(a => string.Equals(a, "--capture-inbox", StringComparison.OrdinalIgnoreCase));
                 bool captureHistory = args != null && args.Any(a => string.Equals(a, "--capture-history", StringComparison.OrdinalIgnoreCase));
                 bool captureFenceTabs = args != null && args.Any(a => string.Equals(a, "--capture-fence-tabs", StringComparison.OrdinalIgnoreCase));
+                bool captureListView = args != null && args.Any(a => string.Equals(a, "--capture-list-view", StringComparison.OrdinalIgnoreCase));
                 bool enableDesktopInbox = args != null && args.Any(a => string.Equals(a, "--enable-desktop-inbox", StringComparison.OrdinalIgnoreCase));
                 DeskBoundManager manager = new DeskBoundManager(app, preview, diagnostics);
                 manager.Start();
@@ -523,6 +529,7 @@ namespace DeskBound
                 if (captureInbox) app.Dispatcher.BeginInvoke(new Action(manager.CaptureInboxAndExit));
                 if (captureHistory) app.Dispatcher.BeginInvoke(new Action(manager.CaptureMoveHistoryAndExit));
                 if (captureFenceTabs) app.Dispatcher.BeginInvoke(new Action(manager.CaptureFenceTabsAndExit));
+                if (captureListView) app.Dispatcher.BeginInvoke(new Action(manager.CaptureListViewAndExit));
                 if (enableDesktopInbox) app.Dispatcher.BeginInvoke(new Action(manager.ShowDesktopInbox));
                 app.Run();
                 manager.Dispose();
@@ -1043,6 +1050,35 @@ namespace DeskBound
                     finishTimer.Start();
                 };
                 motionTimer.Start();
+            };
+            captureTimer.Start();
+        }
+
+        public void CaptureListViewAndExit()
+        {
+            FenceModel model = CreatePreviewModel();
+            string previewRoot = Path.Combine(Path.GetTempPath(), "DeskBound-list-preview-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(previewRoot);
+            model.Items = new[] { "Projects", "Documents", "Downloads", "Screenshots", "Design Assets", "Archive" }
+                .Select(name => Directory.CreateDirectory(Path.Combine(previewRoot, name)).FullName).ToList();
+            model.Title = I18n.T("精簡清單");
+            model.Width = 390; model.Height = 390; model.ItemView = "List";
+            model.Tabs.Clear();
+            FenceTabModel tab = new FenceTabModel
+            {
+                Title = I18n.T("常用"), Accent = model.Accent, Items = model.Items, ItemView = "List"
+            };
+            model.Tabs.Add(tab); model.ActiveTabId = tab.Id;
+            FenceWindow preview = new FenceWindow(model, this);
+            preview.Show();
+            DispatcherTimer captureTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(900) };
+            captureTimer.Tick += delegate
+            {
+                captureTimer.Stop();
+                try { preview.SaveVisualPreview(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "DeskBound-list-view-preview.png")); }
+                catch { }
+                try { if (Directory.Exists(previewRoot)) Directory.Delete(previewRoot, true); } catch { }
+                Exit();
             };
             captureTimer.Start();
         }
@@ -3375,6 +3411,11 @@ namespace DeskBound
                     new[] { 0.82, 1.0, 1.20 }, model.ItemScale,
                     delegate(double value) { model.ItemScale = value; CommitAppearance(selectedFence, true, false); }));
 
+                appearanceBody.Children.Add(SectionTitle("檢視方式", "大量項目可改用清單；每個分頁會記住自己的選擇"));
+                appearanceBody.Children.Add(SegmentedChoices(new[] { "圖示格狀", "精簡清單" },
+                    new[] { "Grid", "List" }, string.IsNullOrEmpty(model.ItemView) ? "Grid" : model.ItemView,
+                    delegate(string value) { model.ItemView = value; CommitAppearance(selectedFence, true, false); }));
+
                 appearanceBody.Children.Add(SectionTitle("排列方式", "選擇圍欄內項目的預設順序"));
                 appearanceBody.Children.Add(SegmentedChoices(new[] { "名稱", "最近修改", "檔案類型" },
                     new[] { "Name", "Modified", "Type" }, model.ItemSort,
@@ -4513,6 +4554,7 @@ namespace DeskBound
                     Accent = Model.Accent,
                     PortalPath = Model.PortalPath,
                     ManagedPath = Model.ManagedPath,
+                    ItemView = Model.ItemView,
                     Items = Model.Items ?? new List<string>(),
                     LastMoves = Model.LastMoves ?? new List<MoveRecord>()
                 };
@@ -4526,6 +4568,7 @@ namespace DeskBound
                 if (string.IsNullOrEmpty(tab.Accent)) tab.Accent = Model.Accent;
                 if (tab.Items == null) tab.Items = new List<string>();
                 if (tab.LastMoves == null) tab.LastMoves = new List<MoveRecord>();
+                if (string.IsNullOrEmpty(tab.ItemView)) tab.ItemView = "Grid";
             }
             if (!Model.Tabs.Any(t => string.Equals(t.Id, Model.ActiveTabId, StringComparison.OrdinalIgnoreCase)))
                 Model.ActiveTabId = Model.Tabs[0].Id;
@@ -4545,6 +4588,7 @@ namespace DeskBound
             active.ManagedPath = Model.ManagedPath;
             active.Items = Model.Items ?? new List<string>();
             active.LastMoves = lastMoveRecords ?? new List<MoveRecord>();
+            active.ItemView = string.IsNullOrEmpty(Model.ItemView) ? "Grid" : Model.ItemView;
             if (string.IsNullOrEmpty(active.Accent)) active.Accent = Model.Accent;
         }
 
@@ -4556,6 +4600,7 @@ namespace DeskBound
             Model.ManagedPath = active.ManagedPath;
             Model.Items = active.Items ?? new List<string>();
             Model.LastMoves = active.LastMoves ?? new List<MoveRecord>();
+            Model.ItemView = string.IsNullOrEmpty(active.ItemView) ? "Grid" : active.ItemView;
             active.Items = Model.Items;
             active.LastMoves = Model.LastMoves;
             lastMoveRecords = Model.LastMoves;
@@ -4824,6 +4869,9 @@ namespace DeskBound
             AddItemScaleItem(iconSize, "小", 0.82);
             AddItemScaleItem(iconSize, "中", 1.0);
             AddItemScaleItem(iconSize, "大", 1.20);
+            MenuItem viewMode = new MenuItem { Header = "檢視方式" };
+            AddItemViewItem(viewMode, "圖示格狀", "Grid");
+            AddItemViewItem(viewMode, "精簡清單", "List");
 
             MenuItem appearance = new MenuItem { Header = "外觀與排列設定…" };
             appearance.Click += delegate { manager.ShowAppearanceSettings(this); };
@@ -4861,6 +4909,7 @@ namespace DeskBound
             menu.Items.Add(tabsMenu);
             menu.Items.Add(sorting);
             menu.Items.Add(iconSize);
+            menu.Items.Add(viewMode);
             menu.Items.Add(appearance);
             menu.Items.Add(new Separator());
             menu.Items.Add(remove);
@@ -4944,6 +4993,24 @@ namespace DeskBound
             item.Click += delegate
             {
                 Model.ItemScale = value;
+                BuildContextMenu();
+                RenderItems();
+                manager.SaveSoon();
+            };
+            parent.Items.Add(item);
+        }
+
+        private void AddItemViewItem(MenuItem parent, string label, string value)
+        {
+            MenuItem item = new MenuItem
+            {
+                Header = label, IsCheckable = true,
+                IsChecked = string.Equals(Model.ItemView, value, StringComparison.OrdinalIgnoreCase)
+            };
+            item.Click += delegate
+            {
+                Model.ItemView = value;
+                SyncActiveTabState();
                 BuildContextMenu();
                 RenderItems();
                 manager.SaveSoon();
@@ -5243,7 +5310,11 @@ namespace DeskBound
             if (manager.PreviewMode) { Left = Model.X; Top = Model.Y; }
             else DesktopHost.Move(this, DesktopHostHandle, DesktopEmbedded, Model.X, Model.Y, Width, Height);
             manager.SaveSoon();
-            if (finishedResize) ShowStatus("尺寸  " + Math.Round(Width) + " × " + Math.Round(Height));
+            if (finishedResize)
+            {
+                if (string.Equals(Model.ItemView, "List", StringComparison.OrdinalIgnoreCase)) RenderItems();
+                ShowStatus("尺寸  " + Math.Round(Width) + " × " + Math.Round(Height));
+            }
         }
 
         private static void EnsureModelOnScreen(FenceModel model, double width, double height)
@@ -5519,6 +5590,8 @@ namespace DeskBound
         {
             itemPanel.Children.Clear();
             itemButtons.Clear();
+            bool listView = string.Equals(Model.ItemView, "List", StringComparison.OrdinalIgnoreCase);
+            itemPanel.Orientation = listView ? Orientation.Vertical : Orientation.Horizontal;
             string query = searchBox == null ? "" : (searchBox.Text ?? "").Trim();
             IEnumerable<string> visiblePaths = allItemPaths;
             if (!string.IsNullOrEmpty(query))
@@ -5589,9 +5662,15 @@ namespace DeskBound
         private FrameworkElement CreateItem(string path)
         {
             double scale = Math.Max(0.75, Math.Min(1.30, Model.ItemScale));
+            bool listView = string.Equals(Model.ItemView, "List", StringComparison.OrdinalIgnoreCase);
             ToggleButton button = new ToggleButton
             {
-                Width = Math.Round(88 * scale), Height = Math.Round(84 * scale), Margin = new Thickness(2), Padding = new Thickness(5),
+                Width = listView ? Math.Max(190, Width - 38) : Math.Round(88 * scale),
+                Height = listView ? Math.Round(54 * scale) : Math.Round(84 * scale),
+                Margin = listView ? new Thickness(2, 1.5, 2, 1.5) : new Thickness(2),
+                Padding = listView ? new Thickness(10, 5, 10, 5) : new Thickness(5),
+                HorizontalContentAlignment = listView ? HorizontalAlignment.Stretch : HorizontalAlignment.Center,
+                VerticalContentAlignment = VerticalAlignment.Center,
                 Background = Brushes.Transparent, BorderThickness = new Thickness(0),
                 Cursor = Cursors.Hand, ToolTip = path, Tag = path,
                 IsChecked = selectedPaths.Contains(path), Style = UiStyles.ItemToggleButton(10, AccentPalette.Parse(Model.Accent))
@@ -5601,11 +5680,11 @@ namespace DeskBound
             button.RenderTransformOrigin = new System.Windows.Point(0.5, 0.5);
             button.MouseEnter += delegate { AnimateScale(hoverScale, 1.045, 125); };
             button.MouseLeave += delegate { AnimateScale(hoverScale, 1.0, 150); };
-            StackPanel stack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
             System.Windows.Controls.Image icon = new System.Windows.Controls.Image
             {
-                Width = Math.Round(42 * scale), Height = Math.Round(42 * scale),
-                Margin = new Thickness(0, 2, 0, 5), Stretch = Stretch.Uniform
+                Width = Math.Round((listView ? 34 : 42) * scale), Height = Math.Round((listView ? 34 : 42) * scale),
+                Margin = listView ? new Thickness(0, 0, 10, 0) : new Thickness(0, 2, 0, 5), Stretch = Stretch.Uniform,
+                VerticalAlignment = VerticalAlignment.Center
             };
             RenderOptions.SetBitmapScalingMode(icon, BitmapScalingMode.HighQuality);
             // Shell icon handlers can be slow at login; never block the panel's UI.
@@ -5618,13 +5697,38 @@ namespace DeskBound
             {
                 Text = FriendlyName(path), Foreground = Brushes.White, FontSize = Math.Max(10.2, 11.5 * scale),
                 FontFamily = new FontFamily("Segoe UI Variable Text, Segoe UI"),
-                TextAlignment = TextAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis,
-                MaxWidth = Math.Round(78 * scale), MaxHeight = Math.Round(34 * scale), TextWrapping = TextWrapping.Wrap,
+                TextAlignment = listView ? TextAlignment.Left : TextAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis,
+                MaxWidth = listView ? double.PositiveInfinity : Math.Round(78 * scale),
+                MaxHeight = listView ? Math.Round(19 * scale) : Math.Round(34 * scale),
+                TextWrapping = listView ? TextWrapping.NoWrap : TextWrapping.Wrap,
                 Tag = "i18n-skip"
             };
-            stack.Children.Add(icon);
-            stack.Children.Add(label);
-            button.Content = stack;
+            if (listView)
+            {
+                Grid row = new Grid();
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                row.Children.Add(icon);
+                StackPanel text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+                text.Children.Add(label);
+                string extension = Directory.Exists(path) ? I18n.T("資料夾") : Path.GetExtension(path).TrimStart('.').ToUpperInvariant();
+                if (string.IsNullOrEmpty(extension)) extension = I18n.T("檔案");
+                text.Children.Add(new TextBlock
+                {
+                    Text = extension, Foreground = new SolidColorBrush(MediaColor.FromArgb(135, 255, 255, 255)),
+                    FontSize = Math.Max(9, 9.5 * scale), TextTrimming = TextTrimming.CharacterEllipsis,
+                    Tag = "i18n-skip"
+                });
+                row.Children.Add(text); Grid.SetColumn(text, 1);
+                button.Content = row;
+            }
+            else
+            {
+                StackPanel stack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
+                stack.Children.Add(icon);
+                stack.Children.Add(label);
+                button.Content = stack;
+            }
             button.Click += delegate
             {
                 bool extend = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
@@ -6122,6 +6226,7 @@ namespace DeskBound
         public string Accent { get; set; }
         public string FenceStyle { get; set; }
         public string ItemSort { get; set; }
+        public string ItemView { get; set; }
         public double ItemScale { get; set; }
         public double Opacity { get; set; }
         public double CornerRadius { get; set; }
@@ -6146,6 +6251,7 @@ namespace DeskBound
             Accent = "#7C8CFF";
             FenceStyle = "Glass";
             ItemSort = "Name";
+            ItemView = "Grid";
             ItemScale = 1.0;
             Opacity = 0.86;
             CornerRadius = 0;
@@ -6163,6 +6269,7 @@ namespace DeskBound
         public string PortalPath { get; set; }
         public string ManagedPath { get; set; }
         public string RuleKey { get; set; }
+        public string ItemView { get; set; }
         public List<string> Items { get; set; }
         public List<MoveRecord> LastMoves { get; set; }
 
@@ -6170,6 +6277,7 @@ namespace DeskBound
         {
             Id = Guid.NewGuid().ToString("N");
             Title = "分頁";
+            ItemView = "Grid";
             Items = new List<string>();
             LastMoves = new List<MoveRecord>();
         }
@@ -6322,12 +6430,14 @@ namespace DeskBound
                     if (string.IsNullOrWhiteSpace(tab.Title)) tab.Title = I18n.T("分頁");
                     if (tab.Items == null) tab.Items = new List<string>();
                     if (tab.LastMoves == null) tab.LastMoves = new List<MoveRecord>();
+                    if (string.IsNullOrEmpty(tab.ItemView)) tab.ItemView = "Grid";
                 }
                 if (model.Width < 250) model.Width = 350;
                 if (model.Height < 150) model.Height = 260;
                 if (string.IsNullOrEmpty(model.Accent)) model.Accent = "#7C8CFF";
                 if (string.IsNullOrEmpty(model.FenceStyle)) model.FenceStyle = "Glass";
                 if (string.IsNullOrEmpty(model.ItemSort)) model.ItemSort = "Name";
+                if (string.IsNullOrEmpty(model.ItemView)) model.ItemView = "Grid";
                 if (model.ItemScale < 0.75 || model.ItemScale > 1.30) model.ItemScale = 1.0;
                 if (model.Opacity <= 0 || model.Opacity > 1.0) model.Opacity = 0.86;
                 if (model.CornerRadius < 0 || model.CornerRadius > 30) model.CornerRadius = 0;
@@ -7099,23 +7209,23 @@ namespace DeskBound
                 FenceModel persisted = new FenceModel
                 {
                     Id = "selftest", Title = "test", LastMoves = outward.Moves,
-                    ItemSort = "Modified", ItemScale = 1.20, Locked = true,
+                    ItemSort = "Modified", ItemView = "List", ItemScale = 1.20, Locked = true,
                     CornerRadius = 22, ShadowStyle = "Strong", HideTitle = true, AutoCollapse = true, IsDesktopInbox = true,
                     ActiveTabId = "tab-docs", Tabs = new List<FenceTabModel>
                     {
                         new FenceTabModel { Id = "tab-main", Title = "主要", ManagedPath = fence },
-                        new FenceTabModel { Id = "tab-docs", Title = "文件", RuleKey = "Documents", PortalPath = incoming }
+                        new FenceTabModel { Id = "tab-docs", Title = "文件", RuleKey = "Documents", PortalPath = incoming, ItemView = "List" }
                     }
                 };
                 JavaScriptSerializer serializer = new JavaScriptSerializer();
                 FenceModel restored = serializer.Deserialize<FenceModel>(serializer.Serialize(persisted));
                 Assert(restored.LastMoves != null && restored.LastMoves.Count == 1 &&
                     restored.LastMoves[0].SourcePath == outward.Moves[0].SourcePath, "undo history persistence");
-                Assert(restored.ItemSort == "Modified" && Math.Abs(restored.ItemScale - 1.20) < 0.01 && restored.Locked &&
+                Assert(restored.ItemSort == "Modified" && restored.ItemView == "List" && Math.Abs(restored.ItemScale - 1.20) < 0.01 && restored.Locked &&
                     Math.Abs(restored.CornerRadius - 22) < 0.01 && restored.ShadowStyle == "Strong" && restored.HideTitle && restored.AutoCollapse && restored.IsDesktopInbox,
                     "view preference persistence");
                 Assert(restored.Tabs != null && restored.Tabs.Count == 2 && restored.ActiveTabId == "tab-docs" &&
-                    restored.Tabs[1].RuleKey == "Documents" && restored.Tabs[1].PortalPath == incoming, "tab persistence");
+                    restored.Tabs[1].RuleKey == "Documents" && restored.Tabs[1].PortalPath == incoming && restored.Tabs[1].ItemView == "List", "tab persistence");
                 AppSettingsModel settingsRoundTrip = new AppSettingsModel
                 {
                     DesktopInboxEnabled = true,

@@ -31,7 +31,7 @@ DeskBound is a lightweight desktop organizer for Windows 10 and Windows 11. It g
 
 ## Highlights
 
-- Movable, resizable, collapsible panels with multiple tabs
+- Movable, resizable, collapsible panels with multiple tabs and grid or compact-list views
 - Drag items in and out, plus an optional Desktop Inbox
 - Search, sorting, thumbnails, multi-selection, smart organization, and undo
 - Layout snapshots, scenes, custom visual styles, and Wallpaper Engine support
@@ -43,6 +43,14 @@ DeskBound is a lightweight desktop organizer for Windows 10 and Windows 11. It g
   <img src="assets/screenshots/panel-tabs-en.png" width="460" alt="DeskBound panel with tabs">
   &nbsp;&nbsp;
   <img src="assets/screenshots/help-en.png" width="560" alt="DeskBound help and updates">
+</p>
+
+### Comfortable with large collections
+
+Each tab can use an icon grid or a compact list independently. The list keeps names readable while preserving selection, search, drag-and-drop, and folders.
+
+<p align="center">
+  <img src="assets/screenshots/list-view-en.png" width="390" alt="DeskBound compact list view">
 </p>
 
 ## Install and update

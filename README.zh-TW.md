@@ -31,7 +31,7 @@
 
 ## 主要功能
 
-- 可移動、縮放、收合並支援多分頁的桌面圍欄
+- 可移動、縮放、收合，支援多分頁、圖示格狀與精簡清單的桌面圍欄
 - 自由拖入與移出項目，以及可選用的桌面收件匣
 - 搜尋、排序、縮圖、多選、智慧整理與復原
 - 版面快照、情境配置、自訂外觀與 Wallpaper Engine 支援
@@ -43,6 +43,14 @@
   <img src="assets/screenshots/panel-tabs.png" width="460" alt="桌伴多分頁圍欄">
   &nbsp;&nbsp;
   <img src="assets/screenshots/updates-and-help.png" width="560" alt="使用說明與軟體更新">
+</p>
+
+### 大量項目也容易瀏覽
+
+每個分頁都能分別使用圖示格狀或精簡清單。清單讓名稱更容易閱讀，同時保留選取、搜尋、拖放與資料夾功能。
+
+<p align="center">
+  <img src="assets/screenshots/list-view.png" width="390" alt="桌伴精簡清單模式">
 </p>
 
 ## 安裝與更新
