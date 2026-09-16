@@ -1,0 +1,18 @@
+{
+  "tag_name": "v0.19.1",
+  "html_url": "https://github.com/bestdrduck/DeskBound/releases/tag/v0.19.1",
+  "assets": [
+    {
+      "name": "DeskBound-Setup.exe",
+      "browser_download_url": "https://github.com/bestdrduck/DeskBound/releases/download/v0.19.1/DeskBound-Setup.exe",
+      "size": 2584545,
+      "digest": "sha256:8e5dcd818839c10a54a6a6c6ea12cdac13deebc0bb8280e57318beec68769122"
+    },
+    {
+      "name": "DeskBound.dbupdate",
+      "browser_download_url": "https://github.com/bestdrduck/DeskBound/releases/download/v0.19.1/DeskBound.dbupdate",
+      "size": 620689,
+      "digest": "sha256:530e9f4b2d7eee0df9dd94f17cd043d0ef7735e2401f3bc2c2ef2f804c089e5d"
+    }
+  ]
+}
