@@ -1,0 +1,90 @@
+name: Publish release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out distribution tag
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Verify staged release
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_dir="release-assets/${RELEASE_TAG}"
+          manifest="${release_dir}/DeskBound-update.json"
+          test -f "${release_dir}/DeskBound-Setup.exe"
+          test -f "${release_dir}/DeskBound.dbupdate"
+          test -f "${manifest}"
+          python3 - "${release_dir}" "${manifest}" <<'PY'
+          import hashlib
+          import json
+          import pathlib
+          import sys
+
+          release_dir = pathlib.Path(sys.argv[1])
+          manifest_path = pathlib.Path(sys.argv[2])
+          data = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
+          expected_tag = release_dir.name
+          if data.get("tag_name") != expected_tag:
+              raise SystemExit(f"manifest tag mismatch: {data.get('tag_name')!r}")
+          if data.get("html_url") != f"https://github.com/bestdrduck/DeskBound/releases/tag/{expected_tag}":
+              raise SystemExit("manifest release URL does not target the public distribution repository")
+          assets = data.get("assets") or []
+          expected_names = {"DeskBound-Setup.exe", "DeskBound.dbupdate"}
+          if {item.get("name") for item in assets} != expected_names:
+              raise SystemExit("manifest assets do not match the allowed release set")
+          for item in assets:
+              name = item["name"]
+              path = release_dir / name
+              if not path.is_file():
+                  raise SystemExit(f"missing manifest asset: {name}")
+              if int(item["size"]) != path.stat().st_size:
+                  raise SystemExit(f"size mismatch: {name}")
+              digest = "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+              if item.get("digest") != digest:
+                  raise SystemExit(f"SHA-256 mismatch: {name}")
+              expected_url = f"https://github.com/bestdrduck/DeskBound/releases/download/{expected_tag}/{name}"
+              if item.get("browser_download_url") != expected_url:
+                  raise SystemExit(f"manifest download URL does not target the public repository: {name}")
+          PY
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_dir="release-assets/${RELEASE_TAG}"
+          notes_args=(--generate-notes)
+          if [[ -f "${release_dir}/release-notes.md" ]]; then
+            notes_args=(--notes-file "${release_dir}/release-notes.md")
+          fi
+          gh release create "${RELEASE_TAG}" \
+            "${release_dir}/DeskBound-Setup.exe" \
+            "${release_dir}/DeskBound.dbupdate" \
+            "${release_dir}/DeskBound-update.json" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --verify-tag \
+            --title "DeskBound ${RELEASE_TAG}" \
+            "${notes_args[@]}"
+
+      - name: Remove temporary staging branch
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          git push origin --delete "release-${RELEASE_TAG}" || true
